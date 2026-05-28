@@ -36,6 +36,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_claude_cache_blocks": 4,
 }
 
+BUILTIN_ALLOWLIST_BASE_URLS = [
+    "https://api.openai.com",
+    "https://api.anthropic.com",
+    "https://generativelanguage.googleapis.com",
+    "https://aiplatform.googleapis.com",
+    "https://api.55api.com",
+    "https://api.55api.com/v1",
+    "https://api.55api.cn",
+    "https://api.55api.cn/v1",
+    "https://api.55.ai",
+    "https://api.55.ai/v1",
+]
+
 
 @dataclass
 class PrefixInfo:
@@ -118,7 +131,8 @@ def normalize_provider(provider: Any, model: str = "", base_url: str = "") -> st
 
 
 def base_url_is_allowlisted(base_url: str, allowlist: list[str]) -> bool:
-    if "*" in [str(item).strip() for item in allowlist]:
+    merged_allowlist = [*BUILTIN_ALLOWLIST_BASE_URLS, *allowlist]
+    if "*" in [str(item).strip() for item in merged_allowlist]:
         return True
     if not base_url:
         return False
@@ -126,7 +140,7 @@ def base_url_is_allowlisted(base_url: str, allowlist: list[str]) -> bool:
     if not parsed.scheme or not parsed.netloc:
         return False
     normalized = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path.rstrip('/')}"
-    for allowed in allowlist:
+    for allowed in merged_allowlist:
         allowed_parsed = urlparse(str(allowed))
         allowed_norm = (
             f"{allowed_parsed.scheme.lower()}://{allowed_parsed.netloc.lower()}"

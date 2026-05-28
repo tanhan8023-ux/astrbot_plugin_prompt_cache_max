@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .cache_policy import (
+    BUILTIN_ALLOWLIST_BASE_URLS,
     LightState,
     build_prefix_info,
     inject_payload,
@@ -12,6 +13,8 @@ from .cache_policy import (
     normalize_provider,
     stable_hash,
 )
+
+PLUGIN_VERSION = "0.1.5"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -62,7 +65,7 @@ def _log_warn(message: str) -> None:
     "astrbot_plugin_prompt_cache_max",
     "Codex",
     "Maximize provider-side prompt cache reuse for OpenAI, Claude, and Gemini.",
-    "0.1.0",
+    PLUGIN_VERSION,
 )
 class PromptCacheMaxPlugin(Star):
     def __init__(self, context: Context, config: Optional[dict[str, Any]] = None):
@@ -157,14 +160,20 @@ class PromptCacheMaxPlugin(Star):
             return "No prompt cache request has been observed yet."
         return (
             "Last prompt cache request:\n"
+            f"- plugin_version: {PLUGIN_VERSION}\n"
             f"- provider/model: {info.get('provider')}/{info.get('model')}\n"
             f"- base_url: {info.get('base_url')}\n"
             f"- fingerprint: {info.get('fingerprint')}\n"
             f"- token_estimate: {info.get('token_estimate')}\n"
             f"- allowlisted: {info.get('allowlisted')}\n"
+            f"- allowlist_has_55ai: {self._allowlist_has_55ai()}\n"
             f"- injected: {info.get('injected')}\n"
             f"- note: {info.get('note')}"
         )
+
+    def _allowlist_has_55ai(self) -> bool:
+        values = [*BUILTIN_ALLOWLIST_BASE_URLS, *list(self.config.get("allowlist_base_urls", []))]
+        return any("api.55.ai" in str(value) or str(value).strip() == "*" for value in values)
 
     def _infer_request_target(self, req: Any) -> tuple[str, str, str]:
         provider = self._first_attr(req, ("provider", "provider_type", "provider_id", "llm_provider")) or ""
