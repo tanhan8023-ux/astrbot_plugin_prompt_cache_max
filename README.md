@@ -7,6 +7,10 @@ It does not reuse model responses and does not rewrite user meaning. It keeps st
 prefixes stable, injects provider cache hints where safe, and stores only lightweight
 fingerprints and cache statistics.
 
+By default it also prepends a stable warm, natural, lightly teasing style block to
+the system prompt. This increases stable prefix length for prompt caching while
+keeping exact response caching disabled, so replies can still vary naturally.
+
 ## Commands
 
 - `/pcache stats` shows aggregate provider/model cache statistics.

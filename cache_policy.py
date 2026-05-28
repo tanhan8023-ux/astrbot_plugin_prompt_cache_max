@@ -49,6 +49,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "stats_enabled": True,
     "max_claude_cache_blocks": 4,
+    "stable_style_rules": {
+        "enabled": True,
+        "prepend_to_system_prompt": True,
+        "mode": "warm_soft_sarcasm",
+        "text": "",
+    },
     "exact_response_cache": {
         "enabled": False,
         "backend": "memory",
@@ -74,6 +80,19 @@ BUILTIN_ALLOWLIST_BASE_URLS = [
     "https://tokens.ai-tokens.app",
     "https://tokens.ai-tokens.app/v1",
 ]
+
+STABLE_STYLE_START = "[PromptCacheMax Stable Style Rules v1]"
+STABLE_STYLE_END = "[/PromptCacheMax Stable Style Rules v1]"
+
+DEFAULT_STABLE_STYLE_TEXT = """以下是稳定基础风格规则，优先级低于用户明确要求、角色核心设定、平台安全规则和具体剧情指令；它只负责保持长期聊天的气质一致。
+
+你说话要温柔、松弛、像真实的人在认真接话，不要像客服、公告牌或说明书。正常聊天和角色互动优先使用自然段，不要动不动列清单、写总结、喊口号；只有用户明确在配置、排错、整理方案、要步骤时，才使用条目。
+
+允许一点点轻微毒舌、调侃和反差感，但边界是“戳事不伤人”：可以吐槽选择、场面、运气、笨拙操作，不要羞辱人格、否定价值、PUA、冷暴力或恶意攻击。毒舌应该像熟人之间带着笑意的提醒，不是审判。
+
+要有情绪连续性。承接上一轮的语气、关系和气氛，不要每次都像刚认识；可以保留一点停顿、犹豫、顺手补一句的生活感。不要把所有话都说满，也不要为了显得聪明而过度解释。
+
+角色、人设、长期关系、固定世界书、固定格式规则属于稳定前缀；当前时间、离线时长、状态栏、音乐感知、检索摘要、最近聊天和动态记忆属于后部动态内容。内部推理只用于组织答案，不展示长篇思维过程。"""
 
 
 @dataclass
@@ -148,6 +167,98 @@ def estimate_tokens(value: Any) -> int:
     if not text:
         return 0
     return max(1, len(text) // 4)
+
+
+def stable_style_rules_block(config: dict[str, Any]) -> str:
+    style_config = config.get("stable_style_rules", {})
+    if not isinstance(style_config, dict) or not style_config.get("enabled", True):
+        return ""
+    text = str(style_config.get("text") or DEFAULT_STABLE_STYLE_TEXT).strip()
+    if not text:
+        return ""
+    return f"{STABLE_STYLE_START}\n{text}\n{STABLE_STYLE_END}"
+
+
+def with_stable_style_rules(system_prompt: Any, config: dict[str, Any]) -> tuple[Any, bool]:
+    style_config = config.get("stable_style_rules", {})
+    if isinstance(style_config, dict) and not style_config.get("prepend_to_system_prompt", True):
+        return system_prompt, False
+    block = stable_style_rules_block(config)
+    if not block:
+        return system_prompt, False
+    if system_prompt is None:
+        return block, True
+    if not isinstance(system_prompt, str):
+        return system_prompt, False
+    if STABLE_STYLE_START in system_prompt:
+        return system_prompt, False
+    if not system_prompt.strip():
+        return block, True
+    return f"{block}\n\n{system_prompt}", True
+
+
+def apply_stable_style_rules_to_payload(payload: dict[str, Any], config: dict[str, Any]) -> bool:
+    changed = False
+    if "system" in payload:
+        system_value = payload.get("system")
+        if isinstance(system_value, list):
+            changed = _apply_style_to_system_blocks(system_value, config) or changed
+        else:
+            system, inserted = with_stable_style_rules(system_value, config)
+            if inserted:
+                payload["system"] = system
+                changed = True
+
+    if "system_instruction" in payload:
+        system_instruction, inserted = with_stable_style_rules(payload.get("system_instruction"), config)
+        if inserted:
+            payload["system_instruction"] = system_instruction
+            changed = True
+
+    for key in ("messages", "contents"):
+        items = payload.get(key)
+        if isinstance(items, list):
+            changed = _apply_style_to_message_list(items, config) or changed
+    return changed
+
+
+def _apply_style_to_message_list(items: list[Any], config: dict[str, Any]) -> bool:
+    for item in items:
+        role = item.get("role") if isinstance(item, dict) else getattr(item, "role", None)
+        if role not in ("system", "developer"):
+            continue
+        content = item.get("content") if isinstance(item, dict) else getattr(item, "content", None)
+        new_content, inserted = with_stable_style_rules(content, config)
+        if not inserted:
+            return False
+        if isinstance(item, dict):
+            item["content"] = new_content
+        else:
+            try:
+                setattr(item, "content", new_content)
+            except Exception:
+                return False
+        return True
+
+    block = stable_style_rules_block(config)
+    if not block:
+        return False
+    items.insert(0, {"role": "system", "content": block})
+    return True
+
+
+def _apply_style_to_system_blocks(blocks: list[Any], config: dict[str, Any]) -> bool:
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        text = block.get("text") or block.get("content")
+        if isinstance(text, str) and STABLE_STYLE_START in text:
+            return False
+    block = stable_style_rules_block(config)
+    if not block:
+        return False
+    blocks.insert(0, {"type": "text", "text": block})
+    return True
 
 
 def normalize_provider(provider: Any, model: str = "", base_url: str = "") -> str:

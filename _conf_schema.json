@@ -122,6 +122,38 @@
     "type": "int",
     "default": 4
   },
+  "stable_style_rules": {
+    "description": "Prepend a stable warm, natural, lightly teasing style block to the system prompt. This improves stable prefix length without caching repeated responses.",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "Enable stable style rules.",
+        "type": "bool",
+        "default": true
+      },
+      "prepend_to_system_prompt": {
+        "description": "Insert the style block at the front of system_prompt.",
+        "type": "bool",
+        "default": true
+      },
+      "mode": {
+        "description": "Built-in style mode.",
+        "type": "string",
+        "default": "warm_soft_sarcasm"
+      },
+      "text": {
+        "description": "Optional custom stable style text. Leave empty to use the built-in warm soft-sarcasm rules.",
+        "type": "string",
+        "default": ""
+      }
+    },
+    "default": {
+      "enabled": true,
+      "prepend_to_system_prompt": true,
+      "mode": "warm_soft_sarcasm",
+      "text": ""
+    }
+  },
   "exact_response_cache": {
     "description": "Exact response cache. Hits skip the model request completely.",
     "type": "object",

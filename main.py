@@ -7,16 +7,18 @@ from typing import Any, Optional
 from .cache_policy import (
     BUILTIN_ALLOWLIST_BASE_URLS,
     LightState,
+    apply_stable_style_rules_to_payload,
     build_prefix_info,
     inject_payload,
     merge_config,
     normalize_provider,
     normalize_provider_with_config,
     stable_hash,
+    with_stable_style_rules,
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.4.3"
+PLUGIN_VERSION = "0.4.4"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -80,6 +82,7 @@ class PromptCacheMaxPlugin(Star):
         self._latest_info = None
         self._latest_result = None
         self._latest_write_target = "none"
+        self._latest_style_rules = "none"
         self.response_cache = ExactResponseCache(self.config)
         self._latest_response_cache = "none"
         self._response_types: dict[str, Any] = {}
@@ -102,6 +105,7 @@ class PromptCacheMaxPlugin(Star):
         if not self.config.get("enabled", True):
             return
         self._wrap_known_providers()
+        self._apply_stable_style_rules_to_request(req)
         provider, model, base_url = self._infer_request_target(req)
         provider_family = normalize_provider_with_config(provider, model, base_url, self.config)
         key = f"{provider_family}:{model}"
@@ -174,6 +178,7 @@ class PromptCacheMaxPlugin(Star):
             f"- base_url_host: {info.get('base_url_host')}\n"
             f"- fingerprint: {info.get('fingerprint')}\n"
             f"- cache_key: {info.get('cache_key')}\n"
+            f"- stable_style_rules: {self._latest_style_rules}\n"
             f"- token_estimate: {info.get('token_estimate')}\n"
             f"- openai_threshold: {self._openai_threshold()}\n"
             f"- anthropic_threshold: {self._anthropic_threshold()}\n"
@@ -206,6 +211,19 @@ class PromptCacheMaxPlugin(Star):
     def _retention_enabled(self) -> bool:
         retention = self.config.get("openai_prompt_cache_retention", {})
         return bool(isinstance(retention, dict) and retention.get("enabled"))
+
+    def _apply_stable_style_rules_to_request(self, req: Any) -> None:
+        current = getattr(req, "system_prompt", None)
+        updated, inserted = with_stable_style_rules(current, self.config)
+        if not inserted:
+            self._latest_style_rules = "already_present_or_disabled"
+            return
+        try:
+            setattr(req, "system_prompt", updated)
+            self._latest_style_rules = "prepended"
+        except Exception as exc:
+            self._latest_style_rules = "failed"
+            _log_warn(f"[PromptCacheMax] failed to prepend stable style rules: {exc}")
 
     def _infer_request_target(self, req: Any) -> tuple[str, str, str]:
         provider = self._first_attr(req, ("provider", "provider_type", "provider_id", "llm_provider")) or ""
@@ -318,6 +336,8 @@ class PromptCacheMaxPlugin(Star):
             model = str(getattr(provider, "model_name", "") or getattr(provider, "model", "") or kwargs.get("model", ""))
             base_url = plugin._provider_base_url(provider)
             payload = plugin._extract_payload(args, kwargs)
+            if apply_stable_style_rules_to_payload(payload, plugin.config):
+                plugin._latest_style_rules = "payload_prepended"
             info = plugin._latest_info
             if info is None or info.provider != provider_family or (model and info.model and info.model != model):
                 info = plugin._build_info_from_payload(provider_family, model, base_url, payload)

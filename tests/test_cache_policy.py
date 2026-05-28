@@ -3,8 +3,11 @@ from pathlib import Path
 from astrbot_plugin_prompt_cache_max.cache_policy import (
     LightState,
     PrefixInfo,
+    STABLE_STYLE_START,
+    apply_stable_style_rules_to_payload,
     inject_payload,
     merge_config,
+    with_stable_style_rules,
 )
 
 
@@ -31,7 +34,7 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
     allowed = inject_payload({}, make_info("openai", True), config, state)
     denied = inject_payload({}, make_info("openai", False), config, state)
     assert allowed.injected is True
-    assert allowed.payload["prompt_cache_key"] == "a" * 64
+    assert allowed.payload["prompt_cache_key"] == "b" * 64
     assert denied.injected is False
     assert "prompt_cache_key" not in denied.payload
 
@@ -71,3 +74,30 @@ def test_state_does_not_store_prompt_text(tmp_path: Path):
     assert "system prompt" not in text
     assert "user message" not in text
     assert "gemini-pro" in text
+
+
+def test_stable_style_rules_prepend_once():
+    config = merge_config({})
+    updated, inserted = with_stable_style_rules("原本人设", config)
+    assert inserted is True
+    assert updated.startswith(STABLE_STYLE_START)
+    assert updated.endswith("原本人设")
+
+    updated_again, inserted_again = with_stable_style_rules(updated, config)
+    assert inserted_again is False
+    assert updated_again == updated
+
+
+def test_stable_style_rules_can_be_disabled():
+    config = merge_config({"stable_style_rules": {"enabled": False}})
+    updated, inserted = with_stable_style_rules("原本人设", config)
+    assert inserted is False
+    assert updated == "原本人设"
+
+
+def test_stable_style_rules_apply_to_payload_messages():
+    config = merge_config({})
+    payload = {"messages": [{"role": "user", "content": "你好"}]}
+    assert apply_stable_style_rules_to_payload(payload, config) is True
+    assert payload["messages"][0]["role"] == "system"
+    assert STABLE_STYLE_START in payload["messages"][0]["content"]
