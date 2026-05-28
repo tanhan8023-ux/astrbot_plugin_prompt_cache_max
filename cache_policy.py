@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
+    "provider_wrapping_enabled": False,
+    "cache_injection_enabled": False,
     "providers": ["openai", "anthropic", "gemini"],
     "allowlist_base_urls": [
         "https://api.openai.com",

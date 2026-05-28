@@ -4,6 +4,16 @@
     "type": "bool",
     "default": true
   },
+  "provider_wrapping_enabled": {
+    "description": "Wrap provider methods to mutate outgoing payloads. Disabled by default because some OpenAI-compatible middlemen may hang on extra fields.",
+    "type": "bool",
+    "default": false
+  },
+  "cache_injection_enabled": {
+    "description": "Inject provider-specific prompt cache fields. Requires provider_wrapping_enabled. Disabled by default for safety.",
+    "type": "bool",
+    "default": false
+  },
   "providers": {
     "description": "Provider families to enable.",
     "type": "list",

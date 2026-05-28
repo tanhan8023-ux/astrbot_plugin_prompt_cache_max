@@ -18,7 +18,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.4.6"
+PLUGIN_VERSION = "0.4.7"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -86,7 +86,7 @@ class PromptCacheMaxPlugin(Star):
         self.response_cache = ExactResponseCache(self.config)
         self._latest_response_cache = "none"
         self._response_types: dict[str, Any] = {}
-        if self.config.get("enabled", True):
+        if self._provider_wrapping_enabled():
             self._wrap_known_providers()
 
     def _state_path(self) -> Path:
@@ -104,7 +104,8 @@ class PromptCacheMaxPlugin(Star):
     async def on_llm_request(self, event: AstrMessageEvent, req: Any):
         if not self.config.get("enabled", True):
             return
-        self._wrap_known_providers()
+        if self._provider_wrapping_enabled():
+            self._wrap_known_providers()
         self._apply_stable_style_rules_to_request(req)
         provider, model, base_url = self._infer_request_target(req)
         provider_family = normalize_provider_with_config(provider, model, base_url, self.config)
@@ -179,6 +180,8 @@ class PromptCacheMaxPlugin(Star):
             f"- fingerprint: {info.get('fingerprint')}\n"
             f"- cache_key: {info.get('cache_key')}\n"
             f"- stable_style_rules: {self._latest_style_rules}\n"
+            f"- provider_wrapping_enabled: {self._provider_wrapping_enabled()}\n"
+            f"- cache_injection_enabled: {self._cache_injection_enabled()}\n"
             f"- token_estimate: {info.get('token_estimate')}\n"
             f"- openai_threshold: {self._openai_threshold()}\n"
             f"- anthropic_threshold: {self._anthropic_threshold()}\n"
@@ -211,6 +214,12 @@ class PromptCacheMaxPlugin(Star):
     def _retention_enabled(self) -> bool:
         retention = self.config.get("openai_prompt_cache_retention", {})
         return bool(isinstance(retention, dict) and retention.get("enabled"))
+
+    def _provider_wrapping_enabled(self) -> bool:
+        return bool(self.config.get("enabled", True) and self.config.get("provider_wrapping_enabled", False))
+
+    def _cache_injection_enabled(self) -> bool:
+        return bool(self.config.get("enabled", True) and self.config.get("cache_injection_enabled", False))
 
     def _apply_stable_style_rules_to_request(self, req: Any) -> None:
         current = getattr(req, "system_prompt", None)
@@ -341,7 +350,10 @@ class PromptCacheMaxPlugin(Star):
             info = plugin._latest_info
             if info is None or info.provider != provider_family or (model and info.model and info.model != model):
                 info = plugin._build_info_from_payload(provider_family, model, base_url, payload)
-            result = inject_payload(payload, info, plugin.config, plugin.state, plugin._create_gemini_cache)
+            if plugin._cache_injection_enabled():
+                result = inject_payload(payload, info, plugin.config, plugin.state, plugin._create_gemini_cache)
+            else:
+                result = plugin._observe_only_result(payload, info)
             plugin._latest_result = result
             plugin.state.remember_inspect(info, result.injected, result.note)
             if result.injected:
@@ -464,6 +476,20 @@ class PromptCacheMaxPlugin(Star):
                     if key not in ("messages", "contents"):
                         custom_extra[key] = value
         return extra_key
+
+    def _observe_only_result(self, payload: dict[str, Any], info: Any):
+        class Result:
+            injected = False
+            provider = info.provider
+            fingerprint = info.fingerprint
+            token_estimate = info.token_estimate
+            note = "cache injection disabled"
+            cache_breakpoints = 0
+
+            def __init__(self, result_payload: dict[str, Any]):
+                self.payload = result_payload
+
+        return Result(payload)
 
     def _build_info_from_payload(self, provider: str, model: str, base_url: str, payload: dict[str, Any]):
         class PayloadReq:
