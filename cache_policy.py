@@ -441,20 +441,38 @@ def inject_claude_cache_control(payload: dict[str, Any], ttl: str = "5m", limit:
 
     messages = payload.get("messages")
     if isinstance(messages, list) and inserted < limit:
-        cacheable = [
-            message
-            for message in messages
-            if isinstance(message, dict)
-            and message.get("role") in ("system", "developer", "user", "assistant")
-        ]
-        for message in reversed(cacheable):
+        cacheable = _claude_message_cache_candidates(messages)
+        for message in cacheable:
             if inserted >= limit:
                 break
             if _inject_message_cache_control(message, cache_control):
                 inserted += 1
-                break
 
     return inserted > 0
+
+
+def _claude_message_cache_candidates(messages: list[Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+
+    # Stable rules are useful on first request; last assistant maximizes reuse on later turns
+    # because the next user message is appended after it.
+    for role in ("system", "developer", "assistant"):
+        message = _last_message_by_role(messages, role)
+        if message and message not in candidates:
+            candidates.append(message)
+
+    if not candidates:
+        first_message = next((message for message in messages if isinstance(message, dict)), None)
+        if first_message:
+            candidates.append(first_message)
+    return candidates
+
+
+def _last_message_by_role(messages: list[Any], role: str) -> Optional[dict[str, Any]]:
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == role:
+            return message
+    return None
 
 
 def _inject_message_cache_control(message: dict[str, Any], cache_control: dict[str, str]) -> bool:

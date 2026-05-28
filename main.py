@@ -14,7 +14,7 @@ from .cache_policy import (
     stable_hash,
 )
 
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.2.1"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
