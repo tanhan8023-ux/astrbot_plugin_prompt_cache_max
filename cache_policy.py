@@ -32,7 +32,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "openai": 1024,
         "gemini_flash": 1024,
         "gemini_pro": 4096,
-        "anthropic": 1024,
+        "anthropic": 512,
     },
     "stats_enabled": True,
     "max_claude_cache_blocks": 4,

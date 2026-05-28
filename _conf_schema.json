@@ -69,14 +69,14 @@
       "anthropic": {
         "description": "Minimum prefix tokens before adding Claude cache_control.",
         "type": "int",
-        "default": 1024
+        "default": 512
       }
     },
     "default": {
       "openai": 1024,
       "gemini_flash": 1024,
       "gemini_pro": 4096,
-      "anthropic": 1024
+      "anthropic": 512
     }
   },
   "stats_enabled": {

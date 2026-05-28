@@ -14,7 +14,7 @@ from .cache_policy import (
     stable_hash,
 )
 
-PLUGIN_VERSION = "0.1.6"
+PLUGIN_VERSION = "0.1.7"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -166,6 +166,7 @@ class PromptCacheMaxPlugin(Star):
             f"- base_url_host: {info.get('base_url_host')}\n"
             f"- fingerprint: {info.get('fingerprint')}\n"
             f"- token_estimate: {info.get('token_estimate')}\n"
+            f"- anthropic_threshold: {self._anthropic_threshold()}\n"
             f"- allowlisted: {info.get('allowlisted')}\n"
             f"- allowlist_has_55ai: {self._allowlist_has_55ai()}\n"
             f"- injected: {info.get('injected')}\n"
@@ -175,6 +176,12 @@ class PromptCacheMaxPlugin(Star):
     def _allowlist_has_55ai(self) -> bool:
         values = [*BUILTIN_ALLOWLIST_BASE_URLS, *list(self.config.get("allowlist_base_urls", []))]
         return any("api.55.ai" in str(value) or "api.55.al" in str(value) or str(value).strip() == "*" for value in values)
+
+    def _anthropic_threshold(self) -> int:
+        try:
+            return int(self.config.get("min_prefix_tokens", {}).get("anthropic", 512))
+        except Exception:
+            return 512
 
     def _infer_request_target(self, req: Any) -> tuple[str, str, str]:
         provider = self._first_attr(req, ("provider", "provider_type", "provider_id", "llm_provider")) or ""
