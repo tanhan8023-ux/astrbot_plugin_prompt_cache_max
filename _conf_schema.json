@@ -22,7 +22,9 @@
       "https://api.55api.cn",
       "https://api.55api.cn/v1",
       "https://api.55.ai",
-      "https://api.55.ai/v1"
+      "https://api.55.ai/v1",
+      "https://api.55.al",
+      "https://api.55.al/v1"
     ]
   },
   "cache_ttl": {

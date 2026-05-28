@@ -24,6 +24,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "https://api.55api.cn/v1",
         "https://api.55.ai",
         "https://api.55.ai/v1",
+        "https://api.55.al",
+        "https://api.55.al/v1",
     ],
     "cache_ttl": {"anthropic": "5m", "gemini": "3600s"},
     "min_prefix_tokens": {
@@ -47,6 +49,8 @@ BUILTIN_ALLOWLIST_BASE_URLS = [
     "https://api.55api.cn/v1",
     "https://api.55.ai",
     "https://api.55.ai/v1",
+    "https://api.55.al",
+    "https://api.55.al/v1",
 ]
 
 
@@ -55,6 +59,7 @@ class PrefixInfo:
     provider: str
     model: str
     base_url: str
+    base_url_host: str
     fingerprint: str
     token_estimate: int
     allowlisted: bool
@@ -149,6 +154,11 @@ def base_url_is_allowlisted(base_url: str, allowlist: list[str]) -> bool:
         if normalized.startswith(allowed_norm):
             return True
     return False
+
+
+def base_url_host(base_url: str) -> str:
+    parsed = urlparse(str(base_url or ""))
+    return parsed.netloc.lower()
 
 
 def parse_ttl_seconds(value: Any, default: int) -> int:
@@ -271,6 +281,7 @@ class LightState:
             "provider": info.provider,
             "model": info.model,
             "base_url": info.base_url,
+            "base_url_host": info.base_url_host,
             "fingerprint": info.fingerprint[:12],
             "token_estimate": info.token_estimate,
             "allowlisted": info.allowlisted,
@@ -339,6 +350,7 @@ def build_prefix_info(
         provider=normalized,
         model=model,
         base_url=base_url,
+        base_url_host=base_url_host(base_url),
         fingerprint=stable_hash(stable_prefix),
         token_estimate=estimate_tokens(stable_prefix),
         allowlisted=base_url_is_allowlisted(base_url, list(config.get("allowlist_base_urls", []))),

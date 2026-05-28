@@ -14,7 +14,7 @@ from .cache_policy import (
     stable_hash,
 )
 
-PLUGIN_VERSION = "0.1.5"
+PLUGIN_VERSION = "0.1.6"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -163,6 +163,7 @@ class PromptCacheMaxPlugin(Star):
             f"- plugin_version: {PLUGIN_VERSION}\n"
             f"- provider/model: {info.get('provider')}/{info.get('model')}\n"
             f"- base_url: {info.get('base_url')}\n"
+            f"- base_url_host: {info.get('base_url_host')}\n"
             f"- fingerprint: {info.get('fingerprint')}\n"
             f"- token_estimate: {info.get('token_estimate')}\n"
             f"- allowlisted: {info.get('allowlisted')}\n"
@@ -173,7 +174,7 @@ class PromptCacheMaxPlugin(Star):
 
     def _allowlist_has_55ai(self) -> bool:
         values = [*BUILTIN_ALLOWLIST_BASE_URLS, *list(self.config.get("allowlist_base_urls", []))]
-        return any("api.55.ai" in str(value) or str(value).strip() == "*" for value in values)
+        return any("api.55.ai" in str(value) or "api.55.al" in str(value) or str(value).strip() == "*" for value in values)
 
     def _infer_request_target(self, req: Any) -> tuple[str, str, str]:
         provider = self._first_attr(req, ("provider", "provider_type", "provider_id", "llm_provider")) or ""
