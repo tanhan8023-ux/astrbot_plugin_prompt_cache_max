@@ -14,7 +14,7 @@ from .cache_policy import (
     stable_hash,
 )
 
-PLUGIN_VERSION = "0.1.9"
+PLUGIN_VERSION = "0.2.0"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -77,6 +77,7 @@ class PromptCacheMaxPlugin(Star):
         self._last_system_hash_by_key: dict[str, str] = {}
         self._latest_info = None
         self._latest_result = None
+        self._latest_write_target = "none"
         if self.config.get("enabled", True):
             self._wrap_known_providers()
 
@@ -170,6 +171,7 @@ class PromptCacheMaxPlugin(Star):
             f"- allowlisted: {info.get('allowlisted')}\n"
             f"- allowlist_has_55ai: {self._allowlist_has_55ai()}\n"
             f"- injected: {info.get('injected')}\n"
+            f"- write_target: {self._latest_write_target}\n"
             f"- note: {info.get('note')}"
         )
 
@@ -300,7 +302,9 @@ class PromptCacheMaxPlugin(Star):
             plugin._latest_result = result
             plugin.state.remember_inspect(info, result.injected, result.note)
             if result.injected:
-                plugin._write_payload(provider_family, args, kwargs, result.payload)
+                plugin._latest_write_target = plugin._write_payload(provider_family, args, kwargs, result.payload)
+            else:
+                plugin._latest_write_target = "none"
             _log_info(
                 "[PromptCacheMax] "
                 f"{provider_family}/{model} prefix={info.fingerprint[:12]} injected={result.injected} note={result.note}"
@@ -364,23 +368,33 @@ class PromptCacheMaxPlugin(Star):
             return extra
         return {}
 
-    def _write_payload(self, provider: str, args: tuple[Any, ...], kwargs: dict[str, Any], payload: dict[str, Any]) -> None:
+    def _write_payload(self, provider: str, args: tuple[Any, ...], kwargs: dict[str, Any], payload: dict[str, Any]) -> str:
         for key in ("payload", "json", "body", "request_body"):
             if isinstance(kwargs.get(key), dict):
                 kwargs[key].clear()
                 kwargs[key].update(payload)
-                return
+                return f"kwargs.{key}"
         if "messages" in payload and isinstance(kwargs.get("messages"), list):
             kwargs["messages"].clear()
             kwargs["messages"].extend(payload["messages"])
+            return "kwargs.messages"
         if "contents" in payload and isinstance(kwargs.get("contents"), list):
             kwargs["contents"].clear()
             kwargs["contents"].extend(payload["contents"])
+            return "kwargs.contents"
         for arg in args:
             if isinstance(arg, dict):
                 arg.clear()
                 arg.update(payload)
-                return
+                return "args.dict"
+            if isinstance(arg, list) and "messages" in payload:
+                arg.clear()
+                arg.extend(payload["messages"])
+                return "args.messages"
+            if isinstance(arg, list) and "contents" in payload:
+                arg.clear()
+                arg.extend(payload["contents"])
+                return "args.contents"
         extra_key = "extra_body" if provider == "openai" else "custom_extra_body"
         extra = kwargs.setdefault(extra_key, {})
         if isinstance(extra, dict):
@@ -393,6 +407,7 @@ class PromptCacheMaxPlugin(Star):
                 for key, value in payload.items():
                     if key not in ("messages", "contents"):
                         custom_extra[key] = value
+        return extra_key
 
     def _build_info_from_payload(self, provider: str, model: str, base_url: str, payload: dict[str, Any]):
         class PayloadReq:
