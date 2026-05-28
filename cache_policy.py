@@ -18,6 +18,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "https://api.anthropic.com",
         "https://generativelanguage.googleapis.com",
         "https://aiplatform.googleapis.com",
+        "https://api.55api.com",
+        "https://api.55api.com/v1",
+        "https://api.55api.cn",
+        "https://api.55api.cn/v1",
     ],
     "cache_ttl": {"anthropic": "5m", "gemini": "3600s"},
     "min_prefix_tokens": {

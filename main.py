@@ -92,6 +92,7 @@ class PromptCacheMaxPlugin(Star):
     async def on_llm_request(self, event: AstrMessageEvent, req: Any):
         if not self.config.get("enabled", True):
             return
+        self._wrap_known_providers()
         provider, model, base_url = self._infer_request_target(req)
         provider_family = normalize_provider(provider, model, base_url)
         key = f"{provider_family}:{model}"
@@ -230,6 +231,9 @@ class PromptCacheMaxPlugin(Star):
         return unique
 
     def _wrap_method(self, provider: Any, method_name: str, original: Any) -> None:
+        for obj, name, _original in self._wrapped:
+            if obj is provider and name == method_name:
+                return
         plugin = self
 
         async def wrapped(*args: Any, **kwargs: Any):
@@ -264,6 +268,9 @@ class PromptCacheMaxPlugin(Star):
         _log_info(f"[PromptCacheMax] wrapped provider {provider.__class__.__name__}.{method_name}")
 
     def _wrap_sync_method(self, provider: Any, method_name: str, original: Any) -> None:
+        for obj, name, _original in self._wrapped:
+            if obj is provider and name == method_name:
+                return
         plugin = self
 
         def wrapped(*args: Any, **kwargs: Any):
