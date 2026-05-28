@@ -14,7 +14,7 @@ from .cache_policy import (
     stable_hash,
 )
 
-PLUGIN_VERSION = "0.2.1"
+PLUGIN_VERSION = "0.2.2"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -172,6 +172,7 @@ class PromptCacheMaxPlugin(Star):
             f"- allowlist_has_55ai: {self._allowlist_has_55ai()}\n"
             f"- injected: {info.get('injected')}\n"
             f"- write_target: {self._latest_write_target}\n"
+            f"- cache_breakpoints: {getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
             f"- note: {info.get('note')}"
         )
 

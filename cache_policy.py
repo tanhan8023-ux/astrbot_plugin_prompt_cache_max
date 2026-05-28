@@ -74,6 +74,7 @@ class InjectionResult:
     fingerprint: str
     token_estimate: int
     note: str = ""
+    cache_breakpoints: int = 0
 
 
 @dataclass
@@ -384,12 +385,20 @@ def inject_payload(
         minimum = int(minimums.get("anthropic", 1024))
         if info.token_estimate < minimum:
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
-        injected = inject_claude_cache_control(
+        breakpoints = inject_claude_cache_control(
             mutated,
             ttl=str(config.get("cache_ttl", {}).get("anthropic", "5m")),
             limit=int(config.get("max_claude_cache_blocks", 4)),
         )
-        return InjectionResult(mutated, injected, info.provider, info.fingerprint, info.token_estimate, "cache_control" if injected else "no cacheable block")
+        return InjectionResult(
+            mutated,
+            breakpoints > 0,
+            info.provider,
+            info.fingerprint,
+            info.token_estimate,
+            "cache_control" if breakpoints > 0 else "no cacheable block",
+            breakpoints,
+        )
 
     if info.provider == "gemini":
         model_key = "gemini_flash" if "flash" in info.model.lower() else "gemini_pro"
@@ -413,7 +422,7 @@ def inject_payload(
     return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "unsupported provider")
 
 
-def inject_claude_cache_control(payload: dict[str, Any], ttl: str = "5m", limit: int = 4) -> bool:
+def inject_claude_cache_control(payload: dict[str, Any], ttl: str = "5m", limit: int = 4) -> int:
     inserted = 0
     cache_control = {"type": "ephemeral", "ttl": ttl}
 
@@ -448,7 +457,7 @@ def inject_claude_cache_control(payload: dict[str, Any], ttl: str = "5m", limit:
             if _inject_message_cache_control(message, cache_control):
                 inserted += 1
 
-    return inserted > 0
+    return inserted
 
 
 def _claude_message_cache_candidates(messages: list[Any]) -> list[dict[str, Any]]:
@@ -476,8 +485,8 @@ def _last_message_by_role(messages: list[Any], role: str) -> Optional[dict[str, 
 
 
 def _inject_message_cache_control(message: dict[str, Any], cache_control: dict[str, str]) -> bool:
-    if "cache_control" in message:
-        return False
+    if "cache_control" not in message:
+        message["cache_control"] = deepcopy(cache_control)
     content = message.get("content")
     if isinstance(content, str) and content:
         message["content"] = [{"type": "text", "text": content, "cache_control": deepcopy(cache_control)}]
@@ -487,7 +496,6 @@ def _inject_message_cache_control(message: dict[str, Any], cache_control: dict[s
             if isinstance(block, dict) and "cache_control" not in block:
                 block["cache_control"] = deepcopy(cache_control)
                 return True
-    message["cache_control"] = deepcopy(cache_control)
     return True
 
 
