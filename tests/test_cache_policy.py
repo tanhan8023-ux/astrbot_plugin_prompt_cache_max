@@ -35,6 +35,7 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
     denied = inject_payload({}, make_info("openai", False), config, state)
     assert allowed.injected is True
     assert allowed.payload["prompt_cache_key"] == "b" * 64
+    assert "prompt_cache_retention" not in allowed.payload
     assert denied.injected is False
     assert "prompt_cache_key" not in denied.payload
 

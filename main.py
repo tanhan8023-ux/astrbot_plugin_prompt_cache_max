@@ -18,7 +18,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.4.5"
+PLUGIN_VERSION = "0.4.6"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter

@@ -67,7 +67,7 @@
       "enabled": {
         "description": "Send prompt_cache_retention.",
         "type": "bool",
-        "default": true
+        "default": false
       },
       "value": {
         "description": "Retention value.",
@@ -76,7 +76,7 @@
       }
     },
     "default": {
-      "enabled": true,
+      "enabled": false,
       "value": "24h"
     }
   },
@@ -119,12 +119,12 @@
       "openai": {
         "description": "OpenAI-compatible threshold slack.",
         "type": "int",
-        "default": 64
+        "default": 16
       },
       "anthropic": {
         "description": "Claude threshold slack.",
         "type": "int",
-        "default": 64
+        "default": 16
       },
       "gemini": {
         "description": "Gemini threshold slack.",
@@ -133,8 +133,8 @@
       }
     },
     "default": {
-      "openai": 64,
-      "anthropic": 64,
+      "openai": 16,
+      "anthropic": 16,
       "gemini": 128
     }
   },

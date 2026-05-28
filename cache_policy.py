@@ -38,7 +38,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "tokens.ai-tokens.app",
     ],
     "openai_prompt_cache_retention": {
-        "enabled": True,
+        "enabled": False,
         "value": "24h",
     },
     "min_prefix_tokens": {
@@ -48,8 +48,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "anthropic": 512,
     },
     "threshold_slack_tokens": {
-        "openai": 64,
-        "anthropic": 64,
+        "openai": 16,
+        "anthropic": 16,
         "gemini": 128,
     },
     "stats_enabled": True,
