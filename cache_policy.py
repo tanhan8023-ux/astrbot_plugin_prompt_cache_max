@@ -444,15 +444,15 @@ def inject_claude_cache_control(payload: dict[str, Any], ttl: str = "5m", limit:
         cacheable = [
             message
             for message in messages
-            if isinstance(message, dict) and message.get("role") in ("system", "developer")
+            if isinstance(message, dict)
+            and message.get("role") in ("system", "developer", "user", "assistant")
         ]
-        if not cacheable:
-            cacheable = [message for message in messages[:1] if isinstance(message, dict)]
         for message in reversed(cacheable):
             if inserted >= limit:
                 break
             if _inject_message_cache_control(message, cache_control):
                 inserted += 1
+                break
 
     return inserted > 0
 
