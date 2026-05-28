@@ -39,6 +39,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 class PrefixInfo:
     provider: str
     model: str
+    base_url: str
     fingerprint: str
     token_estimate: int
     allowlisted: bool
@@ -76,7 +77,14 @@ def merge_config(config: Optional[dict[str, Any]]) -> dict[str, Any]:
             if hasattr(config, "get") and config.get(key) is not None  # type: ignore[attr-defined]
         }
     for key, value in config.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+        if key == "allowlist_base_urls" and isinstance(value, list):
+            seen = set()
+            merged[key] = [
+                url
+                for url in [*DEFAULT_CONFIG["allowlist_base_urls"], *value]
+                if not (url in seen or seen.add(url))
+            ]
+        elif isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key].update(value)
         else:
             merged[key] = value
@@ -108,6 +116,8 @@ def normalize_provider(provider: Any, model: str = "", base_url: str = "") -> st
 
 
 def base_url_is_allowlisted(base_url: str, allowlist: list[str]) -> bool:
+    if "*" in [str(item).strip() for item in allowlist]:
+        return True
     if not base_url:
         return False
     parsed = urlparse(base_url)
@@ -244,6 +254,7 @@ class LightState:
         self.last_inspect = {
             "provider": info.provider,
             "model": info.model,
+            "base_url": info.base_url,
             "fingerprint": info.fingerprint[:12],
             "token_estimate": info.token_estimate,
             "allowlisted": info.allowlisted,
@@ -311,6 +322,7 @@ def build_prefix_info(
     return PrefixInfo(
         provider=normalized,
         model=model,
+        base_url=base_url,
         fingerprint=stable_hash(stable_prefix),
         token_estimate=estimate_tokens(stable_prefix),
         allowlisted=base_url_is_allowlisted(base_url, list(config.get("allowlist_base_urls", []))),

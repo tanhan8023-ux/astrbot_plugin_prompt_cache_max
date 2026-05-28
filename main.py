@@ -158,6 +158,7 @@ class PromptCacheMaxPlugin(Star):
         return (
             "Last prompt cache request:\n"
             f"- provider/model: {info.get('provider')}/{info.get('model')}\n"
+            f"- base_url: {info.get('base_url')}\n"
             f"- fingerprint: {info.get('fingerprint')}\n"
             f"- token_estimate: {info.get('token_estimate')}\n"
             f"- allowlisted: {info.get('allowlisted')}\n"
@@ -166,18 +167,48 @@ class PromptCacheMaxPlugin(Star):
         )
 
     def _infer_request_target(self, req: Any) -> tuple[str, str, str]:
-        provider = getattr(req, "provider", None) or getattr(req, "provider_type", None) or ""
-        model = getattr(req, "model", None) or getattr(req, "model_name", None) or ""
-        base_url = getattr(req, "base_url", None) or getattr(req, "api_base", None) or ""
+        provider = self._first_attr(req, ("provider", "provider_type", "provider_id", "llm_provider")) or ""
+        model = self._first_attr(req, ("model", "model_name", "model_id", "llm_model")) or ""
+        base_url = self._first_attr(req, ("base_url", "api_base", "api_base_url", "openai_api_base", "api_url", "endpoint")) or ""
         if not provider and hasattr(self.context, "get_using_provider"):
             try:
                 provider_obj = self.context.get_using_provider()
                 provider = getattr(provider_obj, "provider_type", None) or provider_obj.__class__.__name__
-                model = model or getattr(provider_obj, "model_name", None) or getattr(provider_obj, "model", None) or ""
-                base_url = base_url or getattr(provider_obj, "api_base", None) or getattr(provider_obj, "base_url", None) or ""
+                model = model or self._first_attr(provider_obj, ("model_name", "model", "model_id")) or ""
+                base_url = base_url or self._provider_base_url(provider_obj)
             except Exception:
                 pass
         return str(provider or ""), str(model or ""), str(base_url or "")
+
+    def _first_attr(self, obj: Any, names: tuple[str, ...]) -> Any:
+        for name in names:
+            value = getattr(obj, name, None)
+            if value:
+                return value
+        if isinstance(obj, dict):
+            for name in names:
+                value = obj.get(name)
+                if value:
+                    return value
+        return None
+
+    def _provider_base_url(self, provider: Any) -> str:
+        value = self._first_attr(
+            provider,
+            (
+                "api_base",
+                "base_url",
+                "api_base_url",
+                "openai_api_base",
+                "api_url",
+                "endpoint",
+                "baseUrl",
+            ),
+        )
+        if value:
+            return str(value)
+        config = self._first_attr(provider, ("config", "provider_config", "conf")) or {}
+        return str(self._first_attr(config, ("api_base", "base_url", "api_base_url", "openai_api_base", "api_url", "endpoint")) or "")
 
     def _wrap_known_providers(self) -> None:
         providers = self._discover_provider_objects()
@@ -240,10 +271,10 @@ class PromptCacheMaxPlugin(Star):
             provider_family = normalize_provider(
                 getattr(provider, "provider_type", provider.__class__.__name__),
                 getattr(provider, "model_name", "") or getattr(provider, "model", ""),
-                getattr(provider, "api_base", "") or getattr(provider, "base_url", ""),
+                plugin._provider_base_url(provider),
             )
             model = str(getattr(provider, "model_name", "") or getattr(provider, "model", "") or kwargs.get("model", ""))
-            base_url = str(getattr(provider, "api_base", "") or getattr(provider, "base_url", ""))
+            base_url = plugin._provider_base_url(provider)
             payload = plugin._extract_payload(args, kwargs)
             info = plugin._latest_info
             if info is None or info.provider != provider_family or (model and info.model and info.model != model):
@@ -377,7 +408,7 @@ class PromptCacheMaxPlugin(Star):
             provider_family = normalize_provider(
                 getattr(provider, "provider_type", provider.__class__.__name__),
                 getattr(provider, "model_name", "") or getattr(provider, "model", ""),
-                getattr(provider, "api_base", "") or getattr(provider, "base_url", ""),
+                self._provider_base_url(provider),
             )
             if provider_family == family:
                 return provider

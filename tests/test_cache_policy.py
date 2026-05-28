@@ -16,6 +16,7 @@ def make_info(provider: str, base_allowlisted: bool = True, tokens: int = 5000) 
     return PrefixInfo(
         provider=provider,
         model="test-model",
+        base_url="https://api.55api.com/v1" if base_allowlisted else "https://unknown.example/v1",
         fingerprint="a" * 64,
         token_estimate=tokens,
         allowlisted=base_allowlisted,
