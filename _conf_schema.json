@@ -22,6 +22,18 @@
   "cache_ttl": {
     "description": "Provider cache TTL values.",
     "type": "object",
+    "items": {
+      "anthropic": {
+        "description": "Claude cache TTL.",
+        "type": "string",
+        "default": "5m"
+      },
+      "gemini": {
+        "description": "Gemini explicit cache TTL.",
+        "type": "string",
+        "default": "3600s"
+      }
+    },
     "default": {
       "anthropic": "5m",
       "gemini": "3600s"
@@ -30,6 +42,28 @@
   "min_prefix_tokens": {
     "description": "Minimum stable prefix token estimates before explicit cache hints are used.",
     "type": "object",
+    "items": {
+      "openai": {
+        "description": "Minimum prefix tokens before sending OpenAI prompt_cache_key.",
+        "type": "int",
+        "default": 1024
+      },
+      "gemini_flash": {
+        "description": "Minimum prefix tokens before trying Gemini Flash explicit cache.",
+        "type": "int",
+        "default": 1024
+      },
+      "gemini_pro": {
+        "description": "Minimum prefix tokens before trying Gemini Pro explicit cache.",
+        "type": "int",
+        "default": 4096
+      },
+      "anthropic": {
+        "description": "Minimum prefix tokens before adding Claude cache_control.",
+        "type": "int",
+        "default": 1024
+      }
+    },
     "default": {
       "openai": 1024,
       "gemini_flash": 1024,
