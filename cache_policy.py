@@ -39,7 +39,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "value": "24h",
     },
     "min_prefix_tokens": {
-        "openai": 1024,
+        "openai": 512,
         "gemini_flash": 1024,
         "gemini_pro": 4096,
         "anthropic": 512,

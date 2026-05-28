@@ -84,7 +84,7 @@
       "openai": {
         "description": "Minimum prefix tokens before sending OpenAI prompt_cache_key.",
         "type": "int",
-        "default": 1024
+        "default": 512
       },
       "gemini_flash": {
         "description": "Minimum prefix tokens before trying Gemini Flash explicit cache.",
@@ -103,7 +103,7 @@
       }
     },
     "default": {
-      "openai": 1024,
+      "openai": 512,
       "gemini_flash": 1024,
       "gemini_pro": 4096,
       "anthropic": 512

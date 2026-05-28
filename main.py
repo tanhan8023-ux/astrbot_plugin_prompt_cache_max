@@ -16,7 +16,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.4.0"
+PLUGIN_VERSION = "0.4.1"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -174,6 +174,7 @@ class PromptCacheMaxPlugin(Star):
             f"- base_url_host: {info.get('base_url_host')}\n"
             f"- fingerprint: {info.get('fingerprint')}\n"
             f"- token_estimate: {info.get('token_estimate')}\n"
+            f"- openai_threshold: {self._openai_threshold()}\n"
             f"- anthropic_threshold: {self._anthropic_threshold()}\n"
             f"- allowlisted: {info.get('allowlisted')}\n"
             f"- allowlist_has_55ai: {self._allowlist_has_55ai()}\n"
@@ -191,6 +192,12 @@ class PromptCacheMaxPlugin(Star):
     def _anthropic_threshold(self) -> int:
         try:
             return int(self.config.get("min_prefix_tokens", {}).get("anthropic", 512))
+        except Exception:
+            return 512
+
+    def _openai_threshold(self) -> int:
+        try:
+            return int(self.config.get("min_prefix_tokens", {}).get("openai", 512))
         except Exception:
             return 512
 
