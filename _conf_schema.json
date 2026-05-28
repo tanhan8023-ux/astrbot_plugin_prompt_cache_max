@@ -112,6 +112,32 @@
       "anthropic": 512
     }
   },
+  "threshold_slack_tokens": {
+    "description": "Safety margin for rough token estimates. Cache hints are still sent when the estimate is slightly below the configured threshold.",
+    "type": "object",
+    "items": {
+      "openai": {
+        "description": "OpenAI-compatible threshold slack.",
+        "type": "int",
+        "default": 64
+      },
+      "anthropic": {
+        "description": "Claude threshold slack.",
+        "type": "int",
+        "default": 64
+      },
+      "gemini": {
+        "description": "Gemini threshold slack.",
+        "type": "int",
+        "default": 128
+      }
+    },
+    "default": {
+      "openai": 64,
+      "anthropic": 64,
+      "gemini": 128
+    }
+  },
   "stats_enabled": {
     "description": "Persist lightweight aggregate cache statistics.",
     "type": "bool",

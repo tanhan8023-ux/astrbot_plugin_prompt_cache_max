@@ -39,6 +39,23 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
     assert "prompt_cache_key" not in denied.payload
 
 
+def test_openai_near_threshold_still_injects(tmp_path: Path):
+    config = merge_config({"min_prefix_tokens": {"openai": 1024}})
+    state = make_state(tmp_path)
+    result = inject_payload({}, make_info("openai", True, tokens=1019), config, state)
+    assert result.injected is True
+    assert result.note == "prompt_cache_key:near_threshold"
+    assert result.payload["prompt_cache_key"] == "b" * 64
+
+
+def test_openai_far_below_threshold_does_not_inject(tmp_path: Path):
+    config = merge_config({"min_prefix_tokens": {"openai": 1024}})
+    state = make_state(tmp_path)
+    result = inject_payload({}, make_info("openai", True, tokens=900), config, state)
+    assert result.injected is False
+    assert result.note == "prefix below threshold"
+
+
 def test_claude_cache_control_limit_and_ttl(tmp_path: Path):
     config = merge_config({"max_claude_cache_blocks": 2, "cache_ttl": {"anthropic": "5m"}})
     state = make_state(tmp_path)

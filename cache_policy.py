@@ -47,6 +47,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "gemini_pro": 4096,
         "anthropic": 512,
     },
+    "threshold_slack_tokens": {
+        "openai": 64,
+        "anthropic": 64,
+        "gemini": 128,
+    },
     "stats_enabled": True,
     "max_claude_cache_blocks": 4,
     "stable_style_rules": {
@@ -84,15 +89,31 @@ BUILTIN_ALLOWLIST_BASE_URLS = [
 STABLE_STYLE_START = "[PromptCacheMax Stable Style Rules v1]"
 STABLE_STYLE_END = "[/PromptCacheMax Stable Style Rules v1]"
 
-DEFAULT_STABLE_STYLE_TEXT = """以下是稳定基础风格规则，优先级低于用户明确要求、角色核心设定、平台安全规则和具体剧情指令；它只负责保持长期聊天的气质一致。
-
-你说话要温柔、松弛、像真实的人在认真接话，不要像客服、公告牌或说明书。正常聊天和角色互动优先使用自然段，不要动不动列清单、写总结、喊口号；只有用户明确在配置、排错、整理方案、要步骤时，才使用条目。
-
-允许一点点轻微毒舌、调侃和反差感，但边界是“戳事不伤人”：可以吐槽选择、场面、运气、笨拙操作，不要羞辱人格、否定价值、PUA、冷暴力或恶意攻击。毒舌应该像熟人之间带着笑意的提醒，不是审判。
-
-要有情绪连续性。承接上一轮的语气、关系和气氛，不要每次都像刚认识；可以保留一点停顿、犹豫、顺手补一句的生活感。不要把所有话都说满，也不要为了显得聪明而过度解释。
-
-角色、人设、长期关系、固定世界书、固定格式规则属于稳定前缀；当前时间、离线时长、状态栏、音乐感知、检索摘要、最近聊天和动态记忆属于后部动态内容。内部推理只用于组织答案，不展示长篇思维过程。"""
+DEFAULT_STABLE_STYLE_TEXT = (
+    "\u4ee5\u4e0b\u662f\u7a33\u5b9a\u57fa\u7840\u98ce\u683c\u89c4\u5219\uff0c\u4f18\u5148\u7ea7\u4f4e\u4e8e\u7528\u6237\u660e\u786e\u8981\u6c42\u3001"
+    "\u89d2\u8272\u6838\u5fc3\u8bbe\u5b9a\u3001\u5e73\u53f0\u5b89\u5168\u89c4\u5219\u548c\u5177\u4f53\u5267\u60c5\u6307\u4ee4\uff1b"
+    "\u5b83\u53ea\u8d1f\u8d23\u4fdd\u6301\u957f\u671f\u804a\u5929\u7684\u6c14\u8d28\u4e00\u81f4\u3002\n\n"
+    "\u4f60\u8bf4\u8bdd\u8981\u6e29\u67d4\u3001\u677e\u5f1b\u3001\u50cf\u771f\u5b9e\u7684\u4eba\u5728\u8ba4\u771f\u63a5\u8bdd\uff0c"
+    "\u4e0d\u8981\u50cf\u5ba2\u670d\u3001\u516c\u544a\u724c\u6216\u8bf4\u660e\u4e66\u3002"
+    "\u6b63\u5e38\u804a\u5929\u548c\u89d2\u8272\u4e92\u52a8\u4f18\u5148\u4f7f\u7528\u81ea\u7136\u6bb5\uff0c"
+    "\u4e0d\u8981\u52a8\u4e0d\u52a8\u5217\u6e05\u5355\u3001\u5199\u603b\u7ed3\u3001\u558a\u53e3\u53f7\uff1b"
+    "\u53ea\u6709\u7528\u6237\u660e\u786e\u5728\u914d\u7f6e\u3001\u6392\u9519\u3001\u6574\u7406\u65b9\u6848\u3001\u8981\u6b65\u9aa4\u65f6\uff0c"
+    "\u624d\u4f7f\u7528\u6761\u76ee\u3002\n\n"
+    "\u5141\u8bb8\u4e00\u70b9\u70b9\u8f7b\u5fae\u6bd2\u820c\u3001\u8c03\u4f83\u548c\u53cd\u5dee\u611f\uff0c"
+    "\u4f46\u8fb9\u754c\u662f\u201c\u6233\u4e8b\u4e0d\u4f24\u4eba\u201d\uff1a"
+    "\u53ef\u4ee5\u5410\u69fd\u9009\u62e9\u3001\u573a\u9762\u3001\u8fd0\u6c14\u3001\u7b28\u62d9\u64cd\u4f5c\uff0c"
+    "\u4e0d\u8981\u7f9e\u8fb1\u4eba\u683c\u3001\u5426\u5b9a\u4ef7\u503c\u3001PUA\u3001\u51b7\u66b4\u529b\u6216\u6076\u610f\u653b\u51fb\u3002"
+    "\u6bd2\u820c\u5e94\u8be5\u50cf\u719f\u4eba\u4e4b\u95f4\u5e26\u7740\u7b11\u610f\u7684\u63d0\u9192\uff0c\u4e0d\u662f\u5ba1\u5224\u3002\n\n"
+    "\u8981\u6709\u60c5\u7eea\u8fde\u7eed\u6027\u3002"
+    "\u627f\u63a5\u4e0a\u4e00\u8f6e\u7684\u8bed\u6c14\u3001\u5173\u7cfb\u548c\u6c14\u6c1b\uff0c\u4e0d\u8981\u6bcf\u6b21\u90fd\u50cf\u521a\u8ba4\u8bc6\uff1b"
+    "\u53ef\u4ee5\u4fdd\u7559\u4e00\u70b9\u505c\u987f\u3001\u72b9\u8c6b\u3001\u987a\u624b\u8865\u4e00\u53e5\u7684\u751f\u6d3b\u611f\u3002"
+    "\u4e0d\u8981\u628a\u6240\u6709\u8bdd\u90fd\u8bf4\u6ee1\uff0c\u4e5f\u4e0d\u8981\u4e3a\u4e86\u663e\u5f97\u806a\u660e\u800c\u8fc7\u5ea6\u89e3\u91ca\u3002\n\n"
+    "\u89d2\u8272\u3001\u4eba\u8bbe\u3001\u957f\u671f\u5173\u7cfb\u3001\u56fa\u5b9a\u4e16\u754c\u4e66\u3001\u56fa\u5b9a\u683c\u5f0f\u89c4\u5219"
+    "\u5c5e\u4e8e\u7a33\u5b9a\u524d\u7f00\uff1b"
+    "\u5f53\u524d\u65f6\u95f4\u3001\u79bb\u7ebf\u65f6\u957f\u3001\u72b6\u6001\u680f\u3001\u97f3\u4e50\u611f\u77e5\u3001\u68c0\u7d22\u6458\u8981\u3001"
+    "\u6700\u8fd1\u804a\u5929\u548c\u52a8\u6001\u8bb0\u5fc6\u5c5e\u4e8e\u540e\u90e8\u52a8\u6001\u5185\u5bb9\u3002"
+    "\u5185\u90e8\u63a8\u7406\u53ea\u7528\u4e8e\u7ec4\u7ec7\u7b54\u6848\uff0c\u4e0d\u5c55\u793a\u957f\u7bc7\u601d\u7ef4\u8fc7\u7a0b\u3002"
+)
 
 
 @dataclass
@@ -167,6 +188,24 @@ def estimate_tokens(value: Any) -> int:
     if not text:
         return 0
     return max(1, len(text) // 4)
+
+
+def threshold_slack(config: dict[str, Any], provider: str) -> int:
+    values = config.get("threshold_slack_tokens", {})
+    if not isinstance(values, dict):
+        return 0
+    try:
+        return max(0, int(values.get(provider, 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def meets_token_threshold(token_estimate: int, minimum: int, slack: int) -> bool:
+    return token_estimate >= max(0, minimum - slack)
+
+
+def threshold_note(base: str, token_estimate: int, minimum: int) -> str:
+    return f"{base}:near_threshold" if token_estimate < minimum else base
 
 
 def stable_style_rules_block(config: dict[str, Any]) -> str:
@@ -554,17 +593,24 @@ def inject_payload(
     minimums = config.get("min_prefix_tokens", {})
     if info.provider == "openai":
         minimum = int(minimums.get("openai", 1024))
-        if info.token_estimate < minimum:
+        if not meets_token_threshold(info.token_estimate, minimum, threshold_slack(config, "openai")):
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
         mutated.setdefault("prompt_cache_key", info.cache_key_fingerprint[:64])
         retention = config.get("openai_prompt_cache_retention", {})
         if isinstance(retention, dict) and retention.get("enabled"):
             mutated.setdefault("prompt_cache_retention", retention.get("value", "24h"))
-        return InjectionResult(mutated, True, info.provider, info.fingerprint, info.token_estimate, "prompt_cache_key")
+        return InjectionResult(
+            mutated,
+            True,
+            info.provider,
+            info.fingerprint,
+            info.token_estimate,
+            threshold_note("prompt_cache_key", info.token_estimate, minimum),
+        )
 
     if info.provider == "anthropic":
         minimum = int(minimums.get("anthropic", 1024))
-        if info.token_estimate < minimum:
+        if not meets_token_threshold(info.token_estimate, minimum, threshold_slack(config, "anthropic")):
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
         breakpoints = inject_claude_cache_control(
             mutated,
@@ -584,7 +630,7 @@ def inject_payload(
     if info.provider == "gemini":
         model_key = "gemini_flash" if "flash" in info.model.lower() else "gemini_pro"
         minimum = int(minimums.get(model_key, 4096))
-        if info.token_estimate < minimum:
+        if not meets_token_threshold(info.token_estimate, minimum, threshold_slack(config, "gemini")):
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "implicit cache only")
         ttl = parse_ttl_seconds(config.get("cache_ttl", {}).get("gemini"), 3600)
         cache_name = state.get_or_create_gemini_cache(

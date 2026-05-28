@@ -1,6 +1,6 @@
 name: astrbot_plugin_prompt_cache_max
 desc: Maximize provider-side prompt cache reuse for OpenAI, Claude, and Gemini.
 help: Use /pcache stats, /pcache inspect, and /pcache clear to inspect prompt cache behavior.
-version: v0.4.4
+version: v0.4.5
 author: Codex
 repo: "https://github.com/tanhan8023-ux/astrbot_plugin_prompt_cache_max"
