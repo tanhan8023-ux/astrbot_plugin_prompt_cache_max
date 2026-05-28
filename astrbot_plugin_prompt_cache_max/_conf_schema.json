@@ -1,0 +1,50 @@
+{
+  "enabled": {
+    "description": "Enable prompt cache maximization.",
+    "type": "bool",
+    "default": true
+  },
+  "providers": {
+    "description": "Provider families to enable.",
+    "type": "list",
+    "default": ["openai", "anthropic", "gemini"]
+  },
+  "allowlist_base_urls": {
+    "description": "Only these base URL prefixes receive provider-specific cache fields.",
+    "type": "list",
+    "default": [
+      "https://api.openai.com",
+      "https://api.anthropic.com",
+      "https://generativelanguage.googleapis.com",
+      "https://aiplatform.googleapis.com"
+    ]
+  },
+  "cache_ttl": {
+    "description": "Provider cache TTL values.",
+    "type": "object",
+    "default": {
+      "anthropic": "5m",
+      "gemini": "3600s"
+    }
+  },
+  "min_prefix_tokens": {
+    "description": "Minimum stable prefix token estimates before explicit cache hints are used.",
+    "type": "object",
+    "default": {
+      "openai": 1024,
+      "gemini_flash": 1024,
+      "gemini_pro": 4096,
+      "anthropic": 1024
+    }
+  },
+  "stats_enabled": {
+    "description": "Persist lightweight aggregate cache statistics.",
+    "type": "bool",
+    "default": true
+  },
+  "max_claude_cache_blocks": {
+    "description": "Maximum number of Claude cache_control breakpoints to write.",
+    "type": "int",
+    "default": 4
+  }
+}
