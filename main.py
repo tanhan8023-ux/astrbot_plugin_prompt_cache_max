@@ -14,7 +14,7 @@ from .cache_policy import (
     stable_hash,
 )
 
-PLUGIN_VERSION = "0.1.7"
+PLUGIN_VERSION = "0.1.8"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -387,6 +387,12 @@ class PromptCacheMaxPlugin(Star):
             for key, value in payload.items():
                 if key not in ("messages", "contents"):
                     extra[key] = value
+        if provider == "anthropic":
+            custom_extra = kwargs.setdefault("custom_extra_body", {})
+            if isinstance(custom_extra, dict):
+                for key, value in payload.items():
+                    if key not in ("messages", "contents"):
+                        custom_extra[key] = value
 
     def _build_info_from_payload(self, provider: str, model: str, base_url: str, payload: dict[str, Any]):
         class PayloadReq:

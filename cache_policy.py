@@ -439,7 +439,38 @@ def inject_claude_cache_control(payload: dict[str, Any], ttl: str = "5m", limit:
                 tool["cache_control"] = deepcopy(cache_control)
                 inserted += 1
 
+    messages = payload.get("messages")
+    if isinstance(messages, list) and inserted < limit:
+        cacheable = [
+            message
+            for message in messages
+            if isinstance(message, dict) and message.get("role") in ("system", "developer")
+        ]
+        if not cacheable:
+            cacheable = [message for message in messages[:1] if isinstance(message, dict)]
+        for message in reversed(cacheable):
+            if inserted >= limit:
+                break
+            if _inject_message_cache_control(message, cache_control):
+                inserted += 1
+
     return inserted > 0
+
+
+def _inject_message_cache_control(message: dict[str, Any], cache_control: dict[str, str]) -> bool:
+    if "cache_control" in message:
+        return False
+    content = message.get("content")
+    if isinstance(content, str) and content:
+        message["content"] = [{"type": "text", "text": content, "cache_control": deepcopy(cache_control)}]
+        return True
+    if isinstance(content, list):
+        for block in reversed(content):
+            if isinstance(block, dict) and "cache_control" not in block:
+                block["cache_control"] = deepcopy(cache_control)
+                return True
+    message["cache_control"] = deepcopy(cache_control)
+    return True
 
 
 def extract_usage(provider: str, usage: Any) -> dict[str, int]:
