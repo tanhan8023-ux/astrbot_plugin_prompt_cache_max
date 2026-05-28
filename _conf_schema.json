@@ -47,6 +47,36 @@
       "gemini": "3600s"
     }
   },
+  "openai_compatible_hosts": {
+    "description": "Hosts that should use OpenAI-compatible prompt cache fields even when model names contain claude/gemini.",
+    "type": "list",
+    "default": [
+      "api.55.al",
+      "api.55.ai",
+      "api.55api.com",
+      "api.55api.cn"
+    ]
+  },
+  "openai_prompt_cache_retention": {
+    "description": "Optional OpenAI prompt cache retention field. Keep disabled for unknown compatible APIs.",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "Send prompt_cache_retention.",
+        "type": "bool",
+        "default": false
+      },
+      "value": {
+        "description": "Retention value.",
+        "type": "string",
+        "default": "24h"
+      }
+    },
+    "default": {
+      "enabled": false,
+      "value": "24h"
+    }
+  },
   "min_prefix_tokens": {
     "description": "Minimum stable prefix token estimates before explicit cache hints are used.",
     "type": "object",
@@ -96,7 +126,7 @@
       "enabled": {
         "description": "Enable exact response cache.",
         "type": "bool",
-        "default": true
+        "default": false
       },
       "backend": {
         "description": "Cache backend: memory or redis.",
@@ -120,7 +150,7 @@
       }
     },
     "default": {
-      "enabled": true,
+      "enabled": false,
       "backend": "memory",
       "redis_url": "redis://localhost:6379/0",
       "ttl_seconds": 600,

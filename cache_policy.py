@@ -28,6 +28,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "https://api.55.al/v1",
     ],
     "cache_ttl": {"anthropic": "5m", "gemini": "3600s"},
+    "openai_compatible_hosts": [
+        "api.55.al",
+        "api.55.ai",
+        "api.55api.com",
+        "api.55api.cn",
+    ],
+    "openai_prompt_cache_retention": {
+        "enabled": False,
+        "value": "24h",
+    },
     "min_prefix_tokens": {
         "openai": 1024,
         "gemini_flash": 1024,
@@ -37,7 +47,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "stats_enabled": True,
     "max_claude_cache_blocks": 4,
     "exact_response_cache": {
-        "enabled": True,
+        "enabled": False,
         "backend": "memory",
         "redis_url": "redis://localhost:6379/0",
         "ttl_seconds": 600,
@@ -136,6 +146,9 @@ def estimate_tokens(value: Any) -> int:
 
 def normalize_provider(provider: Any, model: str = "", base_url: str = "") -> str:
     raw = " ".join(str(part or "") for part in (provider, model, base_url)).lower()
+    host = base_url_host(base_url)
+    if host in DEFAULT_CONFIG["openai_compatible_hosts"]:
+        return "openai"
     if "anthropic" in raw or "claude" in raw:
         return "anthropic"
     if "gemini" in raw or "generativelanguage" in raw or "aiplatform" in raw:
@@ -372,7 +385,7 @@ def build_prefix_info(
     config: dict[str, Any],
     previous_system_hash: Optional[str] = None,
 ) -> PrefixInfo:
-    normalized = normalize_provider(provider, model, base_url)
+    normalized = normalize_provider_with_config(provider, model, base_url, config)
     stable_prefix = stable_prefix_from_request(req, normalized, model)
     system_hash = stable_hash(stable_prefix.get("system_prompt"))
     return PrefixInfo(
@@ -385,6 +398,14 @@ def build_prefix_info(
         allowlisted=base_url_is_allowlisted(base_url, list(config.get("allowlist_base_urls", []))),
         dynamic_system_prompt=bool(previous_system_hash and previous_system_hash != system_hash),
     )
+
+
+def normalize_provider_with_config(provider: Any, model: str, base_url: str, config: dict[str, Any]) -> str:
+    host = base_url_host(base_url)
+    compatible_hosts = set(str(item).lower() for item in config.get("openai_compatible_hosts", []))
+    if host in compatible_hosts:
+        return "openai"
+    return normalize_provider(provider, model, base_url)
 
 
 def inject_payload(
@@ -407,6 +428,9 @@ def inject_payload(
         if info.token_estimate < minimum:
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
         mutated.setdefault("prompt_cache_key", info.fingerprint[:64])
+        retention = config.get("openai_prompt_cache_retention", {})
+        if isinstance(retention, dict) and retention.get("enabled"):
+            mutated.setdefault("prompt_cache_retention", retention.get("value", "24h"))
         return InjectionResult(mutated, True, info.provider, info.fingerprint, info.token_estimate, "prompt_cache_key")
 
     if info.provider == "anthropic":

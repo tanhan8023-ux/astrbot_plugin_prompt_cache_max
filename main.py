@@ -11,11 +11,12 @@ from .cache_policy import (
     inject_payload,
     merge_config,
     normalize_provider,
+    normalize_provider_with_config,
     stable_hash,
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.3.0"
+PLUGIN_VERSION = "0.4.0"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -102,7 +103,7 @@ class PromptCacheMaxPlugin(Star):
             return
         self._wrap_known_providers()
         provider, model, base_url = self._infer_request_target(req)
-        provider_family = normalize_provider(provider, model, base_url)
+        provider_family = normalize_provider_with_config(provider, model, base_url, self.config)
         key = f"{provider_family}:{model}"
         previous_system_hash = self._last_system_hash_by_key.get(key)
         system_hash = stable_hash(getattr(req, "system_prompt", None))
@@ -295,10 +296,11 @@ class PromptCacheMaxPlugin(Star):
         plugin = self
 
         async def wrapped(*args: Any, **kwargs: Any):
-            provider_family = normalize_provider(
+            provider_family = normalize_provider_with_config(
                 getattr(provider, "provider_type", provider.__class__.__name__),
                 getattr(provider, "model_name", "") or getattr(provider, "model", ""),
                 plugin._provider_base_url(provider),
+                plugin.config,
             )
             model = str(getattr(provider, "model_name", "") or getattr(provider, "model", "") or kwargs.get("model", ""))
             base_url = plugin._provider_base_url(provider)
@@ -464,10 +466,11 @@ class PromptCacheMaxPlugin(Star):
 
     def _provider_for_family(self, family: str) -> Any:
         for provider in self._discover_provider_objects():
-            provider_family = normalize_provider(
+            provider_family = normalize_provider_with_config(
                 getattr(provider, "provider_type", provider.__class__.__name__),
                 getattr(provider, "model_name", "") or getattr(provider, "model", ""),
                 self._provider_base_url(provider),
+                self.config,
             )
             if provider_family == family:
                 return provider
