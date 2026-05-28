@@ -22,6 +22,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "https://api.55api.com/v1",
         "https://api.55api.cn",
         "https://api.55api.cn/v1",
+        "https://api.55.ai",
+        "https://api.55.ai/v1",
     ],
     "cache_ttl": {"anthropic": "5m", "gemini": "3600s"},
     "min_prefix_tokens": {
