@@ -35,7 +35,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "api.55api.cn",
     ],
     "openai_prompt_cache_retention": {
-        "enabled": False,
+        "enabled": True,
         "value": "24h",
     },
     "min_prefix_tokens": {
@@ -78,6 +78,7 @@ class PrefixInfo:
     base_url: str
     base_url_host: str
     fingerprint: str
+    cache_key_fingerprint: str
     token_estimate: int
     allowlisted: bool
     dynamic_system_prompt: bool = False
@@ -217,6 +218,16 @@ def stable_prefix_from_request(req: Any, provider: str, model: str) -> dict[str,
     }
 
 
+def cache_key_prefix_from_request(req: Any, provider: str, model: str, base_url: str) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "model": model,
+        "base_url_host": base_url_host(base_url),
+        "system_prompt": getattr(req, "system_prompt", None),
+        "tools": _safe_public_shape(getattr(req, "func_tool", None) or getattr(req, "tools", None)),
+    }
+
+
 def _safe_public_shape(value: Any) -> Any:
     if value is None:
         return None
@@ -304,6 +315,7 @@ class LightState:
             "base_url": info.base_url,
             "base_url_host": info.base_url_host,
             "fingerprint": info.fingerprint[:12],
+            "cache_key": info.cache_key_fingerprint[:12],
             "token_estimate": info.token_estimate,
             "allowlisted": info.allowlisted,
             "dynamic_system_prompt": info.dynamic_system_prompt,
@@ -394,6 +406,7 @@ def build_prefix_info(
         base_url=base_url,
         base_url_host=base_url_host(base_url),
         fingerprint=stable_hash(stable_prefix),
+        cache_key_fingerprint=stable_hash(cache_key_prefix_from_request(req, normalized, model, base_url)),
         token_estimate=estimate_tokens(stable_prefix),
         allowlisted=base_url_is_allowlisted(base_url, list(config.get("allowlist_base_urls", []))),
         dynamic_system_prompt=bool(previous_system_hash and previous_system_hash != system_hash),
@@ -427,7 +440,7 @@ def inject_payload(
         minimum = int(minimums.get("openai", 1024))
         if info.token_estimate < minimum:
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
-        mutated.setdefault("prompt_cache_key", info.fingerprint[:64])
+        mutated.setdefault("prompt_cache_key", info.cache_key_fingerprint[:64])
         retention = config.get("openai_prompt_cache_retention", {})
         if isinstance(retention, dict) and retention.get("enabled"):
             mutated.setdefault("prompt_cache_retention", retention.get("value", "24h"))

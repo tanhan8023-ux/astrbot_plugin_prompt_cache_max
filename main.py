@@ -16,7 +16,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.4.1"
+PLUGIN_VERSION = "0.4.2"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -173,6 +173,7 @@ class PromptCacheMaxPlugin(Star):
             f"- base_url: {info.get('base_url')}\n"
             f"- base_url_host: {info.get('base_url_host')}\n"
             f"- fingerprint: {info.get('fingerprint')}\n"
+            f"- cache_key: {info.get('cache_key')}\n"
             f"- token_estimate: {info.get('token_estimate')}\n"
             f"- openai_threshold: {self._openai_threshold()}\n"
             f"- anthropic_threshold: {self._anthropic_threshold()}\n"
@@ -182,6 +183,7 @@ class PromptCacheMaxPlugin(Star):
             f"- write_target: {self._latest_write_target}\n"
             f"- cache_breakpoints: {getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
             f"- response_cache: {self._latest_response_cache}\n"
+            f"- retention_enabled: {self._retention_enabled()}\n"
             f"- note: {info.get('note')}"
         )
 
@@ -200,6 +202,10 @@ class PromptCacheMaxPlugin(Star):
             return int(self.config.get("min_prefix_tokens", {}).get("openai", 512))
         except Exception:
             return 512
+
+    def _retention_enabled(self) -> bool:
+        retention = self.config.get("openai_prompt_cache_retention", {})
+        return bool(isinstance(retention, dict) and retention.get("enabled"))
 
     def _infer_request_target(self, req: Any) -> tuple[str, str, str]:
         provider = self._first_attr(req, ("provider", "provider_type", "provider_id", "llm_provider")) or ""

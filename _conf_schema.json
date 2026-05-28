@@ -64,7 +64,7 @@
       "enabled": {
         "description": "Send prompt_cache_retention.",
         "type": "bool",
-        "default": false
+        "default": true
       },
       "value": {
         "description": "Retention value.",
@@ -73,7 +73,7 @@
       }
     },
     "default": {
-      "enabled": false,
+      "enabled": true,
       "value": "24h"
     }
   },
