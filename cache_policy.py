@@ -26,6 +26,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "https://api.55.ai/v1",
         "https://api.55.al",
         "https://api.55.al/v1",
+        "https://tokens.ai-tokens.app",
+        "https://tokens.ai-tokens.app/v1",
     ],
     "cache_ttl": {"anthropic": "5m", "gemini": "3600s"},
     "openai_compatible_hosts": [
@@ -33,6 +35,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "api.55.ai",
         "api.55api.com",
         "api.55api.cn",
+        "tokens.ai-tokens.app",
     ],
     "openai_prompt_cache_retention": {
         "enabled": True,
@@ -68,6 +71,8 @@ BUILTIN_ALLOWLIST_BASE_URLS = [
     "https://api.55.ai/v1",
     "https://api.55.al",
     "https://api.55.al/v1",
+    "https://tokens.ai-tokens.app",
+    "https://tokens.ai-tokens.app/v1",
 ]
 
 

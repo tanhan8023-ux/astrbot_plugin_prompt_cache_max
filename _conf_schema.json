@@ -24,7 +24,9 @@
       "https://api.55.ai",
       "https://api.55.ai/v1",
       "https://api.55.al",
-      "https://api.55.al/v1"
+      "https://api.55.al/v1",
+      "https://tokens.ai-tokens.app",
+      "https://tokens.ai-tokens.app/v1"
     ]
   },
   "cache_ttl": {
@@ -54,7 +56,8 @@
       "api.55.al",
       "api.55.ai",
       "api.55api.com",
-      "api.55api.cn"
+      "api.55api.cn",
+      "tokens.ai-tokens.app"
     ]
   },
   "openai_prompt_cache_retention": {
