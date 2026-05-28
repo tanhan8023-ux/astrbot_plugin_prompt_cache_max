@@ -88,5 +88,43 @@
     "description": "Maximum number of Claude cache_control breakpoints to write.",
     "type": "int",
     "default": 4
+  },
+  "exact_response_cache": {
+    "description": "Exact response cache. Hits skip the model request completely.",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "description": "Enable exact response cache.",
+        "type": "bool",
+        "default": true
+      },
+      "backend": {
+        "description": "Cache backend: memory or redis.",
+        "type": "string",
+        "default": "memory"
+      },
+      "redis_url": {
+        "description": "Redis URL when backend is redis.",
+        "type": "string",
+        "default": "redis://localhost:6379/0"
+      },
+      "ttl_seconds": {
+        "description": "Exact cache TTL.",
+        "type": "int",
+        "default": 600
+      },
+      "max_prompt_chars": {
+        "description": "Do not exact-cache prompts larger than this serialized size.",
+        "type": "int",
+        "default": 12000
+      }
+    },
+    "default": {
+      "enabled": true,
+      "backend": "memory",
+      "redis_url": "redis://localhost:6379/0",
+      "ttl_seconds": 600,
+      "max_prompt_chars": 12000
+    }
   }
 }

@@ -13,8 +13,9 @@ from .cache_policy import (
     normalize_provider,
     stable_hash,
 )
+from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.2.2"
+PLUGIN_VERSION = "0.3.0"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -78,6 +79,9 @@ class PromptCacheMaxPlugin(Star):
         self._latest_info = None
         self._latest_result = None
         self._latest_write_target = "none"
+        self.response_cache = ExactResponseCache(self.config)
+        self._latest_response_cache = "none"
+        self._response_types: dict[str, Any] = {}
         if self.config.get("enabled", True):
             self._wrap_known_providers()
 
@@ -149,9 +153,11 @@ class PromptCacheMaxPlugin(Star):
             cached = stat.get("cached_tokens", 0)
             read = stat.get("cache_read_tokens", 0)
             created = stat.get("cache_creation_tokens", 0)
+            exact_hits = stat.get("exact_cache_hits", 0)
+            exact_writes = stat.get("exact_cache_writes", 0)
             lines.append(
                 f"- {key}: requests={requests}, cached={cached}, "
-                f"read={read}, created={created}"
+                f"read={read}, created={created}, exact_hits={exact_hits}, exact_writes={exact_writes}"
             )
         return "\n".join(lines)
 
@@ -173,6 +179,7 @@ class PromptCacheMaxPlugin(Star):
             f"- injected: {info.get('injected')}\n"
             f"- write_target: {self._latest_write_target}\n"
             f"- cache_breakpoints: {getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
+            f"- response_cache: {self._latest_response_cache}\n"
             f"- note: {info.get('note')}"
         )
 
@@ -306,11 +313,24 @@ class PromptCacheMaxPlugin(Star):
                 plugin._latest_write_target = plugin._write_payload(provider_family, args, kwargs, result.payload)
             else:
                 plugin._latest_write_target = "none"
+            cache_key = plugin.response_cache.make_key(provider_family, model or info.model, base_url, result.payload)
+            lookup = await plugin.response_cache.get(cache_key)
+            if lookup.hit:
+                plugin._latest_response_cache = f"hit:{lookup.backend}"
+                plugin.state.record_exact_cache(provider_family, model or info.model, "hit")
+                _log_info(f"[PromptCacheMax] exact response cache hit {provider_family}/{model}")
+                return plugin.response_cache.restore(lookup.value, plugin._response_types.get(method_name))
+            plugin._latest_response_cache = f"miss:{lookup.reason or lookup.backend}"
             _log_info(
                 "[PromptCacheMax] "
                 f"{provider_family}/{model} prefix={info.fingerprint[:12]} injected={result.injected} note={result.note}"
             )
             response = await original(*args, **kwargs)
+            if response is not None:
+                plugin._response_types[method_name] = response.__class__
+            if await plugin.response_cache.set(cache_key, response):
+                plugin._latest_response_cache = "write:" + plugin.response_cache.backend
+                plugin.state.record_exact_cache(provider_family, model or info.model, "write")
             usage = plugin._extract_usage_from_response(response)
             if plugin.config.get("stats_enabled", True):
                 plugin.state.record_usage(provider_family, model or info.model, usage)

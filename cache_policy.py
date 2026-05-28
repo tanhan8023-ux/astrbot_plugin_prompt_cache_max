@@ -36,6 +36,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "stats_enabled": True,
     "max_claude_cache_blocks": 4,
+    "exact_response_cache": {
+        "enabled": True,
+        "backend": "memory",
+        "redis_url": "redis://localhost:6379/0",
+        "ttl_seconds": 600,
+        "max_prompt_chars": 12000,
+    },
 }
 
 BUILTIN_ALLOWLIST_BASE_URLS = [
@@ -301,12 +308,33 @@ class LightState:
                 "cached_tokens": 0,
                 "cache_read_tokens": 0,
                 "cache_creation_tokens": 0,
+                "exact_cache_hits": 0,
+                "exact_cache_writes": 0,
             },
         )
         bucket["requests"] += 1
         extracted = extract_usage(provider, usage)
         for field_name, value in extracted.items():
             bucket[field_name] = bucket.get(field_name, 0) + int(value or 0)
+        self.save()
+
+    def record_exact_cache(self, provider: str, model: str, event: str) -> None:
+        key = f"{provider}:{model}"
+        bucket = self.stats.setdefault(
+            key,
+            {
+                "requests": 0,
+                "cached_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+                "exact_cache_hits": 0,
+                "exact_cache_writes": 0,
+            },
+        )
+        if event == "hit":
+            bucket["exact_cache_hits"] = bucket.get("exact_cache_hits", 0) + 1
+        elif event == "write":
+            bucket["exact_cache_writes"] = bucket.get("exact_cache_writes", 0) + 1
         self.save()
 
     def get_or_create_gemini_cache(
