@@ -18,7 +18,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.4.7"
+PLUGIN_VERSION = "0.4.8"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -103,6 +103,9 @@ class PromptCacheMaxPlugin(Star):
     @filter.on_llm_request(priority=20)
     async def on_llm_request(self, event: AstrMessageEvent, req: Any):
         if not self.config.get("enabled", True):
+            return
+        if not self.config.get("observe_requests_enabled", False):
+            self._latest_style_rules = "passthrough"
             return
         if self._provider_wrapping_enabled():
             self._wrap_known_providers()

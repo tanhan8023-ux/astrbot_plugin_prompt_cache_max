@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
+    "observe_requests_enabled": False,
     "provider_wrapping_enabled": False,
     "cache_injection_enabled": False,
     "providers": ["openai", "anthropic", "gemini"],
@@ -57,7 +58,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "stats_enabled": True,
     "max_claude_cache_blocks": 4,
     "stable_style_rules": {
-        "enabled": True,
+        "enabled": False,
         "prepend_to_system_prompt": True,
         "mode": "warm_soft_sarcasm",
         "text": "",

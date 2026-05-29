@@ -4,6 +4,11 @@
     "type": "bool",
     "default": true
   },
+  "observe_requests_enabled": {
+    "description": "Observe LLM requests and write lightweight inspect state. Disabled by default for emergency passthrough safety.",
+    "type": "bool",
+    "default": false
+  },
   "provider_wrapping_enabled": {
     "description": "Wrap provider methods to mutate outgoing payloads. Disabled by default because some OpenAI-compatible middlemen may hang on extra fields.",
     "type": "bool",
@@ -165,7 +170,7 @@
       "enabled": {
         "description": "Enable stable style rules.",
         "type": "bool",
-        "default": true
+        "default": false
       },
       "prepend_to_system_prompt": {
         "description": "Insert the style block at the front of system_prompt.",
@@ -184,7 +189,7 @@
       }
     },
     "default": {
-      "enabled": true,
+      "enabled": false,
       "prepend_to_system_prompt": true,
       "mode": "warm_soft_sarcasm",
       "text": ""
