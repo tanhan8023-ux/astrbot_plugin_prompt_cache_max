@@ -53,7 +53,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     ],
     "openai_stream_include_usage": True,
     "aiwork_session_cache_enabled": True,
-    "aiwork_session_id_field": "session_id",
     "min_prefix_tokens": {
         "openai": 1024,
         "gemini_flash": 1024,
@@ -97,6 +96,8 @@ BUILTIN_ALLOWLIST_BASE_URLS = [
     "https://tokens.ai-tokens.app",
     "https://tokens.ai-tokens.app/v1",
 ]
+
+AIWORK_SESSION_HEADER = "session_id"
 
 STABLE_STYLE_START = "[PromptCacheMax Stable Style Rules v1]"
 STABLE_STYLE_END = "[/PromptCacheMax Stable Style Rules v1]"
@@ -179,7 +180,8 @@ class InjectionResult:
     cache_breakpoints: int = 0
     session_cache_enabled: bool = False
     session_id_prefix: str = ""
-    session_id_field: str = ""
+    session_header_name: str = ""
+    session_header_value: str = ""
     session_cache_basis: str = ""
 
 
@@ -423,17 +425,6 @@ def is_aiwork_host(host: str) -> bool:
     return str(host or "").strip().lower() == "aiwork.fans"
 
 
-def aiwork_session_field(config: dict[str, Any]) -> str:
-    value = str(config.get("aiwork_session_id_field") or "session_id").strip()
-    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$", value):
-        return "session_id"
-    return value
-
-
-def aiwork_session_location(config: dict[str, Any]) -> str:
-    return "top_level"
-
-
 def aiwork_session_id(info: PrefixInfo, config: dict[str, Any]) -> str:
     seed = {
         "provider": info.provider,
@@ -446,12 +437,6 @@ def aiwork_session_id(info: PrefixInfo, config: dict[str, Any]) -> str:
 
 def aiwork_session_cache_allowed(info: PrefixInfo, config: dict[str, Any]) -> bool:
     return bool(config.get("aiwork_session_cache_enabled", True) and is_aiwork_host(info.base_url_host))
-
-
-def inject_aiwork_session_id(payload: dict[str, Any], field: str, value: str, config: dict[str, Any]) -> str:
-    location = aiwork_session_location(config)
-    payload[field] = value
-    return location
 
 
 def parse_ttl_seconds(value: Any, default: int) -> int:
@@ -595,8 +580,9 @@ class LightState:
         risk_report: Optional[PrefixRiskReport] = None,
         session_cache_enabled: bool = False,
         session_id_prefix: str = "",
-        session_id_field: str = "",
+        session_header_name: str = "",
         session_cache_basis: str = "",
+        session_header_injected: bool = False,
     ) -> None:
         history_key = f"{info.provider}:{info.model}:{info.base_url_host}"
         previous_fingerprint = self.prefix_history.get(history_key)
@@ -625,7 +611,8 @@ class LightState:
             "note": note,
             "session_cache_enabled": bool(session_cache_enabled),
             "session_id_prefix": session_id_prefix,
-            "session_id_field": session_id_field,
+            "session_header_name": session_header_name,
+            "session_header_injected": bool(session_header_injected),
             "session_cache_basis": session_cache_basis,
             "previous_fingerprint": previous_fingerprint[:12] if previous_fingerprint else "",
             "prefix_same_as_previous": same_as_previous,
@@ -896,13 +883,9 @@ def inject_payload(
     if info.provider == "openai":
         minimum = int(minimums.get("openai", 1024))
         session_cache_enabled = aiwork_session_cache_allowed(info, config)
-        session_field = ""
         session_id_value = ""
-        session_location = ""
         if session_cache_enabled:
-            session_field = aiwork_session_field(config)
             session_id_value = aiwork_session_id(info, config)
-            session_location = inject_aiwork_session_id(mutated, session_field, session_id_value, config)
         if not meets_token_threshold(info.token_estimate, minimum, threshold_slack(config, "openai")):
             if session_cache_enabled:
                 return InjectionResult(
@@ -914,8 +897,9 @@ def inject_payload(
                     "aiwork_session_id",
                     session_cache_enabled=True,
                     session_id_prefix=session_id_value[:12],
-                    session_id_field=session_field,
-                    session_cache_basis=f"aiwork session_id via {session_location}",
+                    session_header_name=AIWORK_SESSION_HEADER,
+                    session_header_value=session_id_value,
+                    session_cache_basis="Sub2API sticky session header",
                 )
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
         cache_key = info.cache_key_fingerprint[:64]
@@ -940,8 +924,9 @@ def inject_payload(
             ),
             session_cache_enabled=session_cache_enabled,
             session_id_prefix=session_id_value[:12],
-            session_id_field=session_field,
-            session_cache_basis=f"aiwork session_id via {session_location}" if session_cache_enabled else "",
+            session_header_name=AIWORK_SESSION_HEADER if session_cache_enabled else "",
+            session_header_value=session_id_value,
+            session_cache_basis="Sub2API sticky session header" if session_cache_enabled else "",
         )
 
     if info.provider == "anthropic":

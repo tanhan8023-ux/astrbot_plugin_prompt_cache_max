@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .cache_policy import (
+    AIWORK_SESSION_HEADER,
     BUILTIN_ALLOWLIST_BASE_URLS,
     LightState,
     analyze_prefix_risks_from_payload,
@@ -20,7 +21,7 @@ from .cache_policy import (
     with_stable_style_rules,
 )
 
-PLUGIN_VERSION = "0.6.5"
+PLUGIN_VERSION = "0.6.6"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -191,7 +192,9 @@ class PromptCacheMaxPlugin(Star):
             f"- 缓存键：{info.get('cache_key')}\n"
             f"- Session 缓存：{self._format_session_cache(info)}\n"
             f"- Session ID：{info.get('session_id_prefix') or '无'}\n"
-            f"- Session 字段：{info.get('session_id_field') or '无'}\n"
+            f"- Session Header：{info.get('session_header_name') or '无'}\n"
+            f"- Session 注入位置：HTTP header\n"
+            f"- Header 注入状态：{self._format_session_header_injected(info)}\n"
             f"- 缓存命中依据：{info.get('session_cache_basis') or '服务端提示词缓存'}\n"
             f"- 稳定风格规则：{self._format_note(self._latest_style_rules)}\n"
             f"- 是否包装提供商方法：{self._format_bool(self._provider_wrapping_enabled())}\n"
@@ -225,6 +228,11 @@ class PromptCacheMaxPlugin(Star):
             return "未启用"
         return "不适用"
 
+    def _format_session_header_injected(self, info: dict[str, Any]) -> str:
+        if not info.get("session_cache_enabled"):
+            return "不适用"
+        return "已注入" if info.get("session_header_injected") else "未捕获 SDK 调用"
+
     def _format_note(self, value: Any) -> str:
         mapping = {
             "none": "无",
@@ -238,8 +246,8 @@ class PromptCacheMaxPlugin(Star):
             "provider disabled": "该提供商未启用",
             "base_url not allowlisted": "接口地址不在白名单",
             "prefix below threshold": "稳定前缀长度低于门槛",
-            "aiwork_session_id": "已发送 aiwork session_id",
-            "prompt_cache_key+aiwork_session_id": "已发送 prompt_cache_key 和 aiwork session_id",
+            "aiwork_session_id": "已准备 Sub2API session header",
+            "prompt_cache_key+aiwork_session_id": "已发送 prompt_cache_key，并准备 Sub2API session header",
             "prompt_cache_key": "已发送缓存键 prompt_cache_key",
             "prompt_cache_key:near_threshold": "接近门槛，已发送缓存键 prompt_cache_key",
             "cache_control": "已写入 Claude 缓存标记",
@@ -301,7 +309,9 @@ class PromptCacheMaxPlugin(Star):
         if info.get("session_cache_enabled") and info.get("session_id_prefix"):
             if info.get("observed_cached_tokens") and int(info.get("observed_cached_tokens") or 0) > 0:
                 return "已命中：后台返回了 cached_tokens"
-            return "已发送 aiwork session_id：命中看站子 session cache"
+            if info.get("session_header_injected"):
+                return "已发送 Sub2API session header：若仍未命中，可能是 aiwork 前置代理丢弃 session_id header"
+            return "未捕获 SDK header 注入点：没有真正发出 session_id header"
         if not self._prefix_meets_threshold(info):
             return "难命中：稳定前缀还不够长"
         if info.get("injected") is not True:
@@ -446,6 +456,7 @@ class PromptCacheMaxPlugin(Star):
     def _wrap_known_providers(self) -> None:
         providers = self._discover_provider_objects()
         for provider in providers:
+            self._wrap_openai_sdk_create(provider)
             for method_name in (
                 "_query",
                 "_query_stream",
@@ -462,6 +473,19 @@ class PromptCacheMaxPlugin(Star):
                     self._wrap_method(provider, method_name, method)
                 elif method and method_name == "_prepare_query_config":
                     self._wrap_sync_method(provider, method_name, method)
+
+    def _wrap_openai_sdk_create(self, provider: Any) -> None:
+        completions = self._openai_completions_object(provider)
+        if completions is None:
+            return
+        method = getattr(completions, "create", None)
+        if callable(method):
+            self._wrap_sdk_create(completions, "create", method)
+
+    def _openai_completions_object(self, provider: Any) -> Any:
+        client = getattr(provider, "client", None)
+        chat = getattr(client, "chat", None) if client is not None else None
+        return getattr(chat, "completions", None) if chat is not None else None
 
     def _discover_provider_objects(self) -> list[Any]:
         objects: list[Any] = []
@@ -529,8 +553,9 @@ class PromptCacheMaxPlugin(Star):
                 risk_report,
                 getattr(result, "session_cache_enabled", False),
                 getattr(result, "session_id_prefix", ""),
-                getattr(result, "session_id_field", ""),
+                getattr(result, "session_header_name", ""),
                 getattr(result, "session_cache_basis", ""),
+                False,
             )
             if result.injected:
                 plugin._latest_write_target = plugin._write_payload(provider_family, args, kwargs, result.payload)
@@ -551,6 +576,29 @@ class PromptCacheMaxPlugin(Star):
         setattr(provider, method_name, wrapped)
         self._wrapped.append((provider, method_name, original))
         _log_info(f"[PromptCacheMax] wrapped provider {provider.__class__.__name__}.{method_name}")
+
+    def _wrap_sdk_create(self, completions: Any, method_name: str, original: Any) -> None:
+        for obj, name, _original in self._wrapped:
+            if obj is completions and name == method_name:
+                return
+        plugin = self
+
+        async def wrapped(*args: Any, **kwargs: Any):
+            injected = plugin._inject_session_header("openai", kwargs, plugin._latest_result)
+            if injected:
+                plugin._mark_session_header_injected()
+            result = original(*args, **kwargs)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+        try:
+            setattr(completions, method_name, wrapped)
+        except Exception as exc:
+            _log_warn(f"[PromptCacheMax] failed to wrap OpenAI SDK chat.completions.create: {exc}")
+            return
+        self._wrapped.append((completions, method_name, original))
+        _log_info("[PromptCacheMax] wrapped OpenAI SDK chat.completions.create")
 
     def _wrap_sync_method(self, provider: Any, method_name: str, original: Any) -> None:
         for obj, name, _original in self._wrapped:
@@ -643,6 +691,30 @@ class PromptCacheMaxPlugin(Star):
                     if key not in ("messages", "contents"):
                         custom_extra[key] = value
         return extra_key
+
+    def _inject_session_header(self, provider: str, kwargs: dict[str, Any], result: Any) -> bool:
+        if provider != "openai":
+            return False
+        if not getattr(result, "session_cache_enabled", False):
+            return False
+        header_name = str(getattr(result, "session_header_name", "") or AIWORK_SESSION_HEADER)
+        header_value = str(getattr(result, "session_header_value", "") or "")
+        if not header_value:
+            return False
+        extra_headers = kwargs.get("extra_headers")
+        if extra_headers is None:
+            kwargs["extra_headers"] = {header_name: header_value}
+            return True
+        if isinstance(extra_headers, dict):
+            extra_headers.setdefault(header_name, header_value)
+            return True
+        return False
+
+    def _mark_session_header_injected(self) -> None:
+        if not self.state.last_inspect:
+            return
+        self.state.last_inspect["session_header_injected"] = True
+        self.state.save()
 
     def _observe_only_result(self, payload: dict[str, Any], info: Any):
         class Result:

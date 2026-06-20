@@ -113,11 +113,6 @@
     "type": "bool",
     "default": true
   },
-  "aiwork_session_id_field": {
-    "description": "写入 aiwork 请求的 Session 字段名。默认 session_id；如果站子要求别的字段名，就改这里。",
-    "type": "string",
-    "default": "session_id"
-  },
   "min_prefix_tokens": {
     "description": "稳定前缀达到多少估算 token 后，才尝试发送缓存提示。",
     "type": "object",

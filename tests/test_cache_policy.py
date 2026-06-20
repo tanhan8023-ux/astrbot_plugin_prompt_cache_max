@@ -81,7 +81,7 @@ def test_aiwork_is_allowlisted_and_openai_compatible():
     assert normalize_provider_with_config("anthropic", "claude-opus-4-6", "https://aiwork.fans/v1", config) == "openai"
 
 
-def test_aiwork_openai_payload_sends_cache_key_and_session_id(tmp_path: Path):
+def test_aiwork_openai_payload_sends_cache_key_and_session_header_metadata(tmp_path: Path):
     config = merge_config({"cache_injection_enabled": True})
     state = make_state(tmp_path)
     info = PrefixInfo(
@@ -97,15 +97,17 @@ def test_aiwork_openai_payload_sends_cache_key_and_session_id(tmp_path: Path):
     result = inject_payload({}, info, config, state)
     assert result.injected is True
     assert result.payload["prompt_cache_key"] == "b" * 64
-    assert result.payload["session_id"]
+    assert "session_id" not in result.payload
     assert result.session_cache_enabled is True
-    assert result.session_id_prefix == result.payload["session_id"][:12]
+    assert result.session_header_name == "session_id"
+    assert result.session_header_value
+    assert result.session_id_prefix == result.session_header_value[:12]
     assert "extra_body" not in result.payload
     assert "stream" not in result.payload
     assert "prompt_cache_retention" not in result.payload
 
 
-def test_aiwork_injects_stable_session_id_top_level(tmp_path: Path):
+def test_aiwork_generates_stable_session_header(tmp_path: Path):
     config = merge_config({"cache_injection_enabled": True})
     state = make_state(tmp_path)
     info = PrefixInfo(
@@ -120,14 +122,15 @@ def test_aiwork_injects_stable_session_id_top_level(tmp_path: Path):
     )
     first = inject_payload({}, info, config, state)
     second = inject_payload({}, info, config, state)
-    assert first.payload["session_id"] == second.payload["session_id"]
-    assert first.session_id_field == "session_id"
-    assert first.session_cache_basis == "aiwork session_id via top_level"
+    assert first.session_header_value == second.session_header_value
+    assert first.session_header_name == "session_id"
+    assert first.session_cache_basis == "Sub2API sticky session header"
+    assert "session_id" not in first.payload
     assert "extra_body" not in first.payload
     assert "stream" not in first.payload
 
 
-def test_aiwork_session_id_ignores_unsafe_extra_body_location(tmp_path: Path):
+def test_aiwork_session_id_ignores_old_unsafe_extra_body_location(tmp_path: Path):
     config = merge_config({"cache_injection_enabled": True, "aiwork_session_id_location": "extra_body"})
     state = make_state(tmp_path)
     info = PrefixInfo(
@@ -141,9 +144,10 @@ def test_aiwork_session_id_ignores_unsafe_extra_body_location(tmp_path: Path):
         allowlisted=True,
     )
     result = inject_payload({}, info, config, state)
-    assert result.payload["session_id"]
+    assert result.session_header_value
+    assert "session_id" not in result.payload
     assert "extra_body" not in result.payload
-    assert result.session_cache_basis == "aiwork session_id via top_level"
+    assert result.session_cache_basis == "Sub2API sticky session header"
 
 
 def test_aiwork_session_id_changes_by_model_or_cache_key(tmp_path: Path):
@@ -180,8 +184,8 @@ def test_aiwork_session_id_changes_by_model_or_cache_key(tmp_path: Path):
         allowlisted=True,
     )
     first = inject_payload({}, base, config, state)
-    assert first.payload["session_id"] != inject_payload({}, different_model, config, state).payload["session_id"]
-    assert first.payload["session_id"] != inject_payload({}, different_key, config, state).payload["session_id"]
+    assert first.session_header_value != inject_payload({}, different_model, config, state).session_header_value
+    assert first.session_header_value != inject_payload({}, different_key, config, state).session_header_value
 
 
 def test_non_aiwork_does_not_inject_session_id(tmp_path: Path):
@@ -192,6 +196,7 @@ def test_non_aiwork_does_not_inject_session_id(tmp_path: Path):
     assert "session_id" not in result.payload
     assert "extra_body" not in result.payload
     assert result.session_cache_enabled is False
+    assert result.session_header_value == ""
 
 
 def test_aiwork_session_id_still_injects_below_openai_threshold(tmp_path: Path):
@@ -210,9 +215,11 @@ def test_aiwork_session_id_still_injects_below_openai_threshold(tmp_path: Path):
     result = inject_payload({}, info, config, state)
     assert result.injected is True
     assert result.note == "aiwork_session_id"
-    assert "session_id" in result.payload
+    assert "session_id" not in result.payload
     assert "extra_body" not in result.payload
     assert "prompt_cache_key" not in result.payload
+    assert result.session_header_name == "session_id"
+    assert result.session_header_value
 
 
 def test_aiwork_never_sends_retention_even_when_enabled(tmp_path: Path):
