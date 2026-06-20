@@ -21,6 +21,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "https://api.anthropic.com",
         "https://generativelanguage.googleapis.com",
         "https://aiplatform.googleapis.com",
+        "https://aiwork.fans",
+        "https://aiwork.fans/v1",
         "https://api.55api.com",
         "https://api.55api.com/v1",
         "https://api.55api.cn",
@@ -34,6 +36,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     ],
     "cache_ttl": {"anthropic": "5m", "gemini": "3600s"},
     "openai_compatible_hosts": [
+        "aiwork.fans",
         "api.55.al",
         "api.55.ai",
         "api.55api.com",
@@ -77,6 +80,8 @@ BUILTIN_ALLOWLIST_BASE_URLS = [
     "https://api.anthropic.com",
     "https://generativelanguage.googleapis.com",
     "https://aiplatform.googleapis.com",
+    "https://aiwork.fans",
+    "https://aiwork.fans/v1",
     "https://api.55api.com",
     "https://api.55api.com/v1",
     "https://api.55api.cn",
@@ -586,6 +591,8 @@ def inject_payload(
     state: LightState,
     create_gemini_cache: Optional[Callable[[str, str, int], Optional[str]]] = None,
 ) -> InjectionResult:
+    if not config.get("cache_injection_enabled", False):
+        return InjectionResult(payload, False, info.provider, info.fingerprint, info.token_estimate, "cache injection disabled")
     providers = set(config.get("providers") or [])
     if info.provider not in providers:
         return InjectionResult(payload, False, info.provider, info.fingerprint, info.token_estimate, "provider disabled")

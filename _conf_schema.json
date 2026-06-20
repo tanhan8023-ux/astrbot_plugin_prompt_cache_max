@@ -32,6 +32,8 @@
       "https://api.anthropic.com",
       "https://generativelanguage.googleapis.com",
       "https://aiplatform.googleapis.com",
+      "https://aiwork.fans",
+      "https://aiwork.fans/v1",
       "https://api.55api.com",
       "https://api.55api.com/v1",
       "https://api.55api.cn",
@@ -68,6 +70,7 @@
     "description": "Hosts that should use OpenAI-compatible prompt cache fields even when model names contain claude/gemini.",
     "type": "list",
     "default": [
+      "aiwork.fans",
       "api.55.al",
       "api.55.ai",
       "api.55api.com",

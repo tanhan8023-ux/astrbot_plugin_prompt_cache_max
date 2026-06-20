@@ -27,3 +27,11 @@ prompts, tools, or user messages.
 
 Unknown OpenAI-compatible endpoints are not sent provider-specific fields by default.
 Add trusted endpoint prefixes to `allowlist_base_urls` if the upstream supports them.
+
+## aiwork.fans
+
+`https://aiwork.fans/v1` is included as an OpenAI-compatible endpoint, but cache
+injection remains opt-in. To test it, enable `observe_requests_enabled`,
+`provider_wrapping_enabled`, and `cache_injection_enabled`; keep
+`openai_prompt_cache_retention.enabled` disabled unless the upstream documents
+support for it.

@@ -5,8 +5,10 @@ from astrbot_plugin_prompt_cache_max.cache_policy import (
     PrefixInfo,
     STABLE_STYLE_START,
     apply_stable_style_rules_to_payload,
+    base_url_is_allowlisted,
     inject_payload,
     merge_config,
+    normalize_provider_with_config,
     with_stable_style_rules,
 )
 
@@ -29,7 +31,7 @@ def make_info(provider: str, base_allowlisted: bool = True, tokens: int = 5000) 
 
 
 def test_openai_payload_only_allowlisted(tmp_path: Path):
-    config = merge_config({})
+    config = merge_config({"cache_injection_enabled": True})
     state = make_state(tmp_path)
     allowed = inject_payload({}, make_info("openai", True), config, state)
     denied = inject_payload({}, make_info("openai", False), config, state)
@@ -40,8 +42,42 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
     assert "prompt_cache_key" not in denied.payload
 
 
+def test_cache_injection_disabled_by_default(tmp_path: Path):
+    config = merge_config({})
+    state = make_state(tmp_path)
+    result = inject_payload({}, make_info("openai", True), config, state)
+    assert result.injected is False
+    assert result.note == "cache injection disabled"
+    assert "prompt_cache_key" not in result.payload
+
+
+def test_aiwork_is_allowlisted_and_openai_compatible():
+    config = merge_config({})
+    assert base_url_is_allowlisted("https://aiwork.fans/v1", list(config.get("allowlist_base_urls", []))) is True
+    assert normalize_provider_with_config("anthropic", "claude-opus-4-6", "https://aiwork.fans/v1", config) == "openai"
+
+
+def test_aiwork_openai_payload_only_sends_cache_key(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True})
+    state = make_state(tmp_path)
+    info = PrefixInfo(
+        provider="openai",
+        model="claude-opus-4-6",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="b" * 64,
+        token_estimate=5000,
+        allowlisted=True,
+    )
+    result = inject_payload({}, info, config, state)
+    assert result.injected is True
+    assert result.payload["prompt_cache_key"] == "b" * 64
+    assert "prompt_cache_retention" not in result.payload
+
+
 def test_openai_near_threshold_still_injects(tmp_path: Path):
-    config = merge_config({"min_prefix_tokens": {"openai": 1024}})
+    config = merge_config({"cache_injection_enabled": True, "min_prefix_tokens": {"openai": 1024}})
     state = make_state(tmp_path)
     result = inject_payload({}, make_info("openai", True, tokens=1019), config, state)
     assert result.injected is True
@@ -50,7 +86,7 @@ def test_openai_near_threshold_still_injects(tmp_path: Path):
 
 
 def test_openai_far_below_threshold_does_not_inject(tmp_path: Path):
-    config = merge_config({"min_prefix_tokens": {"openai": 1024}})
+    config = merge_config({"cache_injection_enabled": True, "min_prefix_tokens": {"openai": 1024}})
     state = make_state(tmp_path)
     result = inject_payload({}, make_info("openai", True, tokens=900), config, state)
     assert result.injected is False
@@ -58,7 +94,7 @@ def test_openai_far_below_threshold_does_not_inject(tmp_path: Path):
 
 
 def test_claude_cache_control_limit_and_ttl(tmp_path: Path):
-    config = merge_config({"max_claude_cache_blocks": 2, "cache_ttl": {"anthropic": "5m"}})
+    config = merge_config({"cache_injection_enabled": True, "max_claude_cache_blocks": 2, "cache_ttl": {"anthropic": "5m"}})
     state = make_state(tmp_path)
     payload = {"system": "stable rules", "tools": [{"name": "a"}, {"name": "b"}]}
     result = inject_payload(payload, make_info("anthropic", True), config, state)
@@ -70,7 +106,7 @@ def test_claude_cache_control_limit_and_ttl(tmp_path: Path):
 
 
 def test_gemini_reuses_cache_until_expired(tmp_path: Path):
-    config = merge_config({"cache_ttl": {"gemini": "3600s"}})
+    config = merge_config({"cache_injection_enabled": True, "cache_ttl": {"gemini": "3600s"}})
     state = make_state(tmp_path)
     created = []
 
@@ -95,7 +131,7 @@ def test_state_does_not_store_prompt_text(tmp_path: Path):
 
 
 def test_stable_style_rules_prepend_once():
-    config = merge_config({})
+    config = merge_config({"stable_style_rules": {"enabled": True}})
     updated, inserted = with_stable_style_rules("原本人设", config)
     assert inserted is True
     assert updated.startswith(STABLE_STYLE_START)
@@ -114,7 +150,7 @@ def test_stable_style_rules_can_be_disabled():
 
 
 def test_stable_style_rules_apply_to_payload_messages():
-    config = merge_config({})
+    config = merge_config({"stable_style_rules": {"enabled": True}})
     payload = {"messages": [{"role": "user", "content": "你好"}]}
     assert apply_stable_style_rules_to_payload(payload, config) is True
     assert payload["messages"][0]["role"] == "system"
