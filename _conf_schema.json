@@ -111,9 +111,9 @@
     "default": true
   },
   "openai_cache_key_extra_body": {
-    "description": "把 prompt_cache_key 同时写入 extra_body/custom_extra_body。部分中转站或 SDK 只会透传 extra_body，想提高真实命中率建议保持开启。",
+    "description": "实验开关：尝试把 prompt_cache_key 写入 extra_body。当前默认关闭，因为部分 AstrBot/OpenAI SDK 路径会造成 extra_body 参数重复。",
     "type": "bool",
-    "default": true
+    "default": false
   },
   "min_prefix_tokens": {
     "description": "稳定前缀达到多少估算 token 后，才尝试发送缓存提示。",

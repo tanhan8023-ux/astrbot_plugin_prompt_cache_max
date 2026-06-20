@@ -21,7 +21,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.5.8"
+PLUGIN_VERSION = "0.5.9"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -267,8 +267,8 @@ class PromptCacheMaxPlugin(Star):
         return "等待模型响应统计"
 
     def _format_cache_key_mode(self) -> str:
-        if self.config.get("openai_cache_key_extra_body", True):
-            return "顶层 + extra_body 双写"
+        if self.config.get("openai_cache_key_extra_body", False):
+            return "顶层 + extra_body 实验写入"
         return "仅顶层"
 
     def _format_risk_reasons(self, info: dict[str, Any]) -> str:

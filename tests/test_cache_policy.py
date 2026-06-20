@@ -41,8 +41,8 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
     denied = inject_payload({}, make_info("openai", False), config, state)
     assert allowed.injected is True
     assert allowed.payload["prompt_cache_key"] == "b" * 64
-    assert allowed.payload["extra_body"]["prompt_cache_key"] == "b" * 64
-    assert allowed.payload["custom_extra_body"]["prompt_cache_key"] == "b" * 64
+    assert "extra_body" not in allowed.payload
+    assert "custom_extra_body" not in allowed.payload
     assert "prompt_cache_retention" not in allowed.payload
     assert denied.injected is False
     assert "prompt_cache_key" not in denied.payload
@@ -97,7 +97,7 @@ def test_aiwork_openai_payload_only_sends_cache_key(tmp_path: Path):
     result = inject_payload({}, info, config, state)
     assert result.injected is True
     assert result.payload["prompt_cache_key"] == "b" * 64
-    assert result.payload["extra_body"]["prompt_cache_key"] == "b" * 64
+    assert "extra_body" not in result.payload
     assert "prompt_cache_retention" not in result.payload
 
 

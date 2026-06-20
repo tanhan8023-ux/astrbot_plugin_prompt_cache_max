@@ -52,7 +52,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "aiwork.fans",
     ],
     "openai_stream_include_usage": True,
-    "openai_cache_key_extra_body": True,
+    "openai_cache_key_extra_body": False,
     "min_prefix_tokens": {
         "openai": 1024,
         "gemini_flash": 1024,
@@ -879,13 +879,6 @@ def inject_payload(
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
         cache_key = info.cache_key_fingerprint[:64]
         mutated.setdefault("prompt_cache_key", cache_key)
-        if config.get("openai_cache_key_extra_body", True):
-            extra_body = mutated.setdefault("extra_body", {})
-            if isinstance(extra_body, dict):
-                extra_body.setdefault("prompt_cache_key", cache_key)
-            custom_extra_body = mutated.setdefault("custom_extra_body", {})
-            if isinstance(custom_extra_body, dict):
-                custom_extra_body.setdefault("prompt_cache_key", cache_key)
         if config.get("openai_stream_include_usage", True) and mutated.get("stream") is True:
             stream_options = mutated.setdefault("stream_options", {})
             if isinstance(stream_options, dict):
