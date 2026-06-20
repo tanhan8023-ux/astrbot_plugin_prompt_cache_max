@@ -112,7 +112,7 @@
       "openai": {
         "description": "发送 OpenAI 兼容缓存键（prompt_cache_key）的最低前缀长度。",
         "type": "int",
-        "default": 512
+        "default": 1024
       },
       "gemini_flash": {
         "description": "尝试 Gemini Flash 显式缓存的最低前缀长度。",
@@ -131,7 +131,7 @@
       }
     },
     "default": {
-      "openai": 512,
+      "openai": 1024,
       "gemini_flash": 1024,
       "gemini_pro": 4096,
       "anthropic": 512
@@ -206,6 +206,11 @@
         "description": "自定义稳定缓存锚点文本。留空时使用内置锚点。",
         "type": "string",
         "default": ""
+      },
+      "cache_anchor_target_tokens": {
+        "description": "稳定缓存锚点目标长度。建议至少 1536，让动态内容尽量排到 OpenAI 兼容缓存门槛后面。",
+        "type": "int",
+        "default": 1536
       }
     },
     "default": {
@@ -214,7 +219,8 @@
       "mode": "warm_soft_sarcasm",
       "text": "",
       "cache_anchor_enabled": true,
-      "cache_anchor_text": ""
+      "cache_anchor_text": "",
+      "cache_anchor_target_tokens": 1536
     }
   },
   "exact_response_cache": {

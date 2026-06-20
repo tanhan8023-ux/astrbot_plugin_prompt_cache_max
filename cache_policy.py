@@ -52,7 +52,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "aiwork.fans",
     ],
     "min_prefix_tokens": {
-        "openai": 512,
+        "openai": 1024,
         "gemini_flash": 1024,
         "gemini_pro": 4096,
         "anthropic": 512,
@@ -71,6 +71,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "text": "",
         "cache_anchor_enabled": True,
         "cache_anchor_text": "",
+        "cache_anchor_target_tokens": 1536,
     },
     "exact_response_cache": {
         "enabled": False,
@@ -164,6 +165,9 @@ class PrefixRiskReport:
     dynamic_prefix: bool = False
     media_prefix: bool = False
     front_not_static: bool = False
+    actual_prefix_fingerprint: str = ""
+    actual_prefix_token_estimate: int = 0
+    first_dynamic_token_estimate: Optional[int] = None
     reasons: list[str] = field(default_factory=list)
 
 
@@ -255,9 +259,29 @@ def stable_style_rules_block(config: dict[str, Any]) -> str:
         anchor = str(style_config.get("cache_anchor_text") or DEFAULT_STABLE_CACHE_ANCHOR_TEXT).strip()
         if anchor and anchor not in text:
             text = f"{text}\n\n{anchor}" if text else anchor
+    text = _pad_stable_anchor_text(text, style_config)
     if not text:
         return ""
     return f"{STABLE_STYLE_START}\n{text}\n{STABLE_STYLE_END}"
+
+
+def _pad_stable_anchor_text(text: str, style_config: dict[str, Any]) -> str:
+    if not style_config.get("cache_anchor_enabled", True):
+        return text
+    try:
+        target_tokens = int(style_config.get("cache_anchor_target_tokens", 1536) or 0)
+    except (TypeError, ValueError):
+        target_tokens = 1536
+    if target_tokens <= 0:
+        return text
+    filler = (
+        "固定缓存锚点补强：这句话只用于增加稳定前缀长度，不改变角色、不固定回复、不覆盖当前对话。"
+        "固定内容保持一致，动态内容留在后部。"
+    )
+    padded = text
+    while estimate_tokens(padded) < target_tokens:
+        padded = f"{padded}\n{filler}"
+    return padded
 
 
 def with_stable_style_rules(system_prompt: Any, config: dict[str, Any]) -> tuple[Any, bool]:
@@ -470,6 +494,7 @@ class LightState:
         self.stats: dict[str, dict[str, int]] = {}
         self.last_inspect: dict[str, Any] = {}
         self.prefix_history: dict[str, str] = {}
+        self.actual_prefix_history: dict[str, str] = {}
         self.load()
 
     def load(self) -> None:
@@ -482,6 +507,7 @@ class LightState:
         self.stats = data.get("stats", {})
         self.last_inspect = data.get("last_inspect", {})
         self.prefix_history = data.get("prefix_history", {})
+        self.actual_prefix_history = data.get("actual_prefix_history", {})
         for fingerprint, raw in data.get("entries", {}).items():
             self.entries[fingerprint] = CacheEntry(
                 provider=str(raw.get("provider", "")),
@@ -509,6 +535,7 @@ class LightState:
             "stats": self.stats,
             "last_inspect": self.last_inspect,
             "prefix_history": self.prefix_history,
+            "actual_prefix_history": self.actual_prefix_history,
         }
         self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -517,6 +544,7 @@ class LightState:
         self.stats = {}
         self.last_inspect = {}
         self.prefix_history = {}
+        self.actual_prefix_history = {}
         self.save()
 
     def remember_inspect(
@@ -530,6 +558,15 @@ class LightState:
         previous_fingerprint = self.prefix_history.get(history_key)
         same_as_previous = previous_fingerprint == info.fingerprint if previous_fingerprint else None
         self.prefix_history[history_key] = info.fingerprint
+        actual_fingerprint = risk_report.actual_prefix_fingerprint if risk_report else ""
+        previous_actual_fingerprint = self.actual_prefix_history.get(history_key)
+        actual_same_as_previous = (
+            previous_actual_fingerprint == actual_fingerprint
+            if previous_actual_fingerprint and actual_fingerprint
+            else None
+        )
+        if actual_fingerprint:
+            self.actual_prefix_history[history_key] = actual_fingerprint
         self.last_inspect = {
             "provider": info.provider,
             "model": info.model,
@@ -544,6 +581,13 @@ class LightState:
             "note": note,
             "previous_fingerprint": previous_fingerprint[:12] if previous_fingerprint else "",
             "prefix_same_as_previous": same_as_previous,
+            "actual_prefix_fingerprint": actual_fingerprint,
+            "previous_actual_prefix_fingerprint": previous_actual_fingerprint[:12] if previous_actual_fingerprint else "",
+            "actual_prefix_same_as_previous": actual_same_as_previous,
+            "actual_prefix_token_estimate": int(risk_report.actual_prefix_token_estimate if risk_report else 0),
+            "first_dynamic_token_estimate": (
+                risk_report.first_dynamic_token_estimate if risk_report else None
+            ),
             "dynamic_prefix": bool(risk_report and risk_report.dynamic_prefix),
             "media_prefix": bool(risk_report and risk_report.media_prefix),
             "front_not_static": bool(risk_report and risk_report.front_not_static),
@@ -677,6 +721,9 @@ def analyze_prefix_risks_from_payload(payload: dict[str, Any]) -> PrefixRiskRepo
 def analyze_prefix_risks(sections: list[tuple[str, Any]]) -> PrefixRiskReport:
     report = PrefixRiskReport()
     meaningful_sections = [(name, value) for name, value in sections if value not in (None, "", [], {})]
+    actual_prefix_text = _actual_prefix_text(meaningful_sections)
+    report.actual_prefix_fingerprint = stable_hash(actual_prefix_text)[:12] if actual_prefix_text else ""
+    report.actual_prefix_token_estimate = estimate_tokens(actual_prefix_text) if actual_prefix_text else 0
     if meaningful_sections:
         first_name, first_value = meaningful_sections[0]
         first_role = _section_role(first_value)
@@ -686,8 +733,11 @@ def analyze_prefix_risks(sections: list[tuple[str, Any]]) -> PrefixRiskReport:
 
     for _name, value in meaningful_sections[:4]:
         text = _flatten_text(value)
-        if any(pattern.search(text) for _code, pattern in DYNAMIC_PREFIX_PATTERNS):
+        dynamic_match = _first_dynamic_match(text)
+        if dynamic_match:
             report.dynamic_prefix = True
+            if report.first_dynamic_token_estimate is None:
+                report.first_dynamic_token_estimate = estimate_tokens(text[: dynamic_match.start()])
         if _contains_media(value):
             report.media_prefix = True
 
@@ -696,6 +746,27 @@ def analyze_prefix_risks(sections: list[tuple[str, Any]]) -> PrefixRiskReport:
     if report.media_prefix:
         report.reasons.append("media_near_front")
     return report
+
+
+def _actual_prefix_text(sections: list[tuple[str, Any]], max_chars: int = 4096) -> str:
+    parts: list[str] = []
+    total = 0
+    for name, value in sections:
+        piece = f"{name}:{canonical_json(_safe_public_shape(value))}"
+        if total + len(piece) > max_chars:
+            piece = piece[: max(0, max_chars - total)]
+        parts.append(piece)
+        total += len(piece)
+        if total >= max_chars:
+            break
+    return "\n".join(parts)
+
+
+def _first_dynamic_match(text: str) -> Optional[re.Match[str]]:
+    matches = [match for _code, pattern in DYNAMIC_PREFIX_PATTERNS if (match := pattern.search(text))]
+    if not matches:
+        return None
+    return min(matches, key=lambda item: item.start())
 
 
 def _front_context_sections(contexts: Any) -> list[tuple[str, Any]]:

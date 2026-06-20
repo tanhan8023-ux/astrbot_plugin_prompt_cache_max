@@ -21,7 +21,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.5.4"
+PLUGIN_VERSION = "0.5.5"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -192,11 +192,15 @@ class PromptCacheMaxPlugin(Star):
             f"- 前缀指纹：{info.get('fingerprint')}\n"
             f"- 上次前缀指纹：{info.get('previous_fingerprint') or '无'}\n"
             f"- 本次前缀和上次是否一致：{self._format_prefix_same(info.get('prefix_same_as_previous'))}\n"
+            f"- 真实请求前缀指纹：{info.get('actual_prefix_fingerprint') or '无'}\n"
+            f"- 真实请求前缀是否一致：{self._format_prefix_same(info.get('actual_prefix_same_as_previous'))}\n"
             f"- 缓存键：{info.get('cache_key')}\n"
             f"- 稳定风格规则：{self._format_note(self._latest_style_rules)}\n"
             f"- 是否包装提供商方法：{self._format_bool(self._provider_wrapping_enabled())}\n"
             f"- 是否注入缓存字段：{self._format_bool(self._cache_injection_enabled())}\n"
             f"- 前缀长度估算：{info.get('token_estimate')}\n"
+            f"- 真实请求前缀估算：{info.get('actual_prefix_token_estimate') or 0}\n"
+            f"- 首个动态内容位置估算：{self._format_dynamic_position(info)}\n"
             f"- 稳定前缀是否够长：{self._format_bool(self._prefix_meets_threshold(info))}\n"
             f"- OpenAI兼容门槛：{self._openai_threshold()}\n"
             f"- Claude门槛：{self._anthropic_threshold()}\n"
@@ -281,15 +285,31 @@ class PromptCacheMaxPlugin(Star):
             return f"未注入：{self._format_note(info.get('note'))}"
         if info.get("observed_cached_tokens") and int(info.get("observed_cached_tokens") or 0) > 0:
             return "已命中：后台返回了 cached_tokens"
+        if info.get("actual_prefix_same_as_previous") is False:
+            return "未稳定：真实请求前缀和上次不一致"
         if info.get("prefix_same_as_previous") is False:
             return "未稳定：本次前缀和上次不一致"
-        if info.get("prefix_same_as_previous") is True and info.get("usage_observed") and int(info.get("observed_cached_tokens") or 0) == 0:
-            return "可能未透传：前缀一致但 cached_tokens 为 0，上游可能不支持或没返回统计"
+        if info.get("actual_prefix_same_as_previous") is True and info.get("usage_observed") and int(info.get("observed_cached_tokens") or 0) == 0:
+            return "可能未透传：真实请求前缀一致但 cached_tokens 为 0，上游可能不支持或缓存偶发失效"
+        if info.get("actual_prefix_same_as_previous") is True:
+            return "条件满足：真实请求前缀一致，等待后台返回 cached_tokens"
         if info.get("prefix_same_as_previous") is True:
-            return "条件满足：前缀一致，等待后台返回 cached_tokens"
+            return "部分稳定：稳定前缀一致，下一轮继续看真实请求前缀"
         if info.get("front_not_static") or info.get("dynamic_prefix") or info.get("media_prefix"):
             return "有风险：动态内容或图片/GIF 靠前，下一轮如果变化会影响命中"
         return "首轮记录：下一轮相同前缀才好判断命中"
+
+    def _format_dynamic_position(self, info: dict[str, Any]) -> str:
+        value = info.get("first_dynamic_token_estimate")
+        if value is None:
+            return "未发现"
+        try:
+            token_pos = int(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if token_pos < 1024:
+            return f"约 {token_pos} token，太靠前"
+        return f"约 {token_pos} token，已在缓存门槛后"
 
     def _prefix_meets_threshold(self, info: dict[str, Any]) -> bool:
         provider = str(info.get("provider") or "")
@@ -320,9 +340,9 @@ class PromptCacheMaxPlugin(Star):
 
     def _openai_threshold(self) -> int:
         try:
-            return int(self.config.get("min_prefix_tokens", {}).get("openai", 512))
+            return int(self.config.get("min_prefix_tokens", {}).get("openai", 1024))
         except Exception:
-            return 512
+            return 1024
 
     def _retention_enabled(self, info: Optional[dict[str, Any]] = None) -> bool:
         retention = self.config.get("openai_prompt_cache_retention", {})

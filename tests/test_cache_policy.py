@@ -13,6 +13,7 @@ from astrbot_plugin_prompt_cache_max.cache_policy import (
     normalize_provider_with_config,
     openai_retention_allowed,
     with_stable_style_rules,
+    estimate_tokens,
 )
 
 
@@ -226,9 +227,31 @@ def test_stable_cache_anchor_can_be_disabled():
     assert DEFAULT_STABLE_CACHE_ANCHOR_TEXT not in updated
 
 
+def test_stable_cache_anchor_pads_to_target_tokens():
+    config = merge_config({"stable_style_rules": {"enabled": True, "cache_anchor_target_tokens": 1536}})
+    updated, inserted = with_stable_style_rules("原本人设", config)
+    assert inserted is True
+    assert estimate_tokens(updated) >= 1536
+
+
 def test_stable_style_rules_apply_to_payload_messages():
     config = merge_config({"stable_style_rules": {"enabled": True}})
     payload = {"messages": [{"role": "user", "content": "你好"}]}
     assert apply_stable_style_rules_to_payload(payload, config) is True
     assert payload["messages"][0]["role"] == "system"
     assert STABLE_STYLE_START in payload["messages"][0]["content"]
+
+
+def test_actual_prefix_history_tracks_real_payload(tmp_path: Path):
+    state = make_state(tmp_path)
+    info = make_info("openai", True)
+    first_risk = analyze_prefix_risks_from_payload(
+        {"messages": [{"role": "system", "content": "固定人设"}, {"role": "user", "content": "a"}]}
+    )
+    second_risk = analyze_prefix_risks_from_payload(
+        {"messages": [{"role": "system", "content": "固定人设"}, {"role": "user", "content": "b"}]}
+    )
+    state.remember_inspect(info, True, "prompt_cache_key", first_risk)
+    state.remember_inspect(info, True, "prompt_cache_key", second_risk)
+    assert state.last_inspect["prefix_same_as_previous"] is True
+    assert state.last_inspect["actual_prefix_same_as_previous"] is False
