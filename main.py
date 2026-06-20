@@ -12,6 +12,8 @@ from .cache_policy import (
     analyze_prefix_risks_from_request,
     apply_stable_style_rules_to_payload,
     build_prefix_info,
+    config_with_effective_anchor_target,
+    effective_cache_threshold,
     inject_payload,
     merge_config,
     normalize_provider,
@@ -21,7 +23,7 @@ from .cache_policy import (
     with_stable_style_rules,
 )
 
-PLUGIN_VERSION = "0.6.6"
+PLUGIN_VERSION = "0.6.7"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -111,19 +113,20 @@ class PromptCacheMaxPlugin(Star):
             return
         if self._provider_wrapping_enabled():
             self._wrap_known_providers()
-        self._apply_stable_style_rules_to_request(req)
         provider, model, base_url = self._infer_request_target(req)
         provider_family = normalize_provider_with_config(provider, model, base_url, self.config)
+        self._apply_stable_style_rules_to_request(req, model, base_url)
         key = f"{provider_family}:{model}"
         previous_system_hash = self._last_system_hash_by_key.get(key)
         system_hash = stable_hash(getattr(req, "system_prompt", None))
         info = build_prefix_info(req, provider_family, model, base_url, self.config, previous_system_hash)
-        risk_report = analyze_prefix_risks_from_request(req)
+        effective_threshold = effective_cache_threshold(info, self.config)
+        risk_report = analyze_prefix_risks_from_request(req, effective_threshold)
         self._latest_risk_report = risk_report
         self._last_system_hash_by_key[key] = system_hash
         self._latest_info = info
         if not self._provider_wrapping_enabled():
-            self.state.remember_inspect(info, False, "request observed", risk_report)
+            self.state.remember_inspect(info, False, "request observed", risk_report, effective_threshold=effective_threshold)
         if info.dynamic_system_prompt:
             _log_warn(
                 "[PromptCacheMax] system_prompt changed for "
@@ -189,6 +192,9 @@ class PromptCacheMaxPlugin(Star):
             f"- 本次前缀和上次是否一致：{self._format_prefix_same(info.get('prefix_same_as_previous'))}\n"
             f"- 真实请求前缀指纹：{info.get('actual_prefix_fingerprint') or '无'}\n"
             f"- 真实请求前缀是否一致：{self._format_prefix_same(info.get('actual_prefix_same_as_previous'))}\n"
+            f"- 实际缓存门槛：{self._effective_cache_threshold(info)}\n"
+            f"- 检测窗口：{info.get('actual_prefix_window_tokens') or self._effective_cache_threshold(info)} token\n"
+            f"- 按实际门槛的前缀是否一致：{self._format_prefix_same(info.get('actual_prefix_same_as_previous'))}\n"
             f"- 缓存键：{info.get('cache_key')}\n"
             f"- Session 缓存：{self._format_session_cache(info)}\n"
             f"- Session ID：{info.get('session_id_prefix') or '无'}\n"
@@ -306,28 +312,33 @@ class PromptCacheMaxPlugin(Star):
             return "不会命中：provider_wrapping_enabled 未开启"
         if not self._cache_injection_enabled():
             return "不会命中：cache_injection_enabled 未开启"
+        dynamic_position = self._first_dynamic_position(info)
+        effective_threshold = self._effective_cache_threshold(info)
+        if dynamic_position is not None and effective_threshold and dynamic_position < effective_threshold:
+            return f"未过实际门槛：动态内容在约 {dynamic_position} token，必须放到 {effective_threshold} token 后"
+        if not self._prefix_meets_threshold(info):
+            return f"未过实际门槛：稳定前缀还不到 {effective_threshold} token"
         if info.get("session_cache_enabled") and info.get("session_id_prefix"):
             if info.get("observed_cached_tokens") and int(info.get("observed_cached_tokens") or 0) > 0:
                 return "已命中：后台返回了 cached_tokens"
-            if info.get("session_header_injected"):
-                return "已发送 Sub2API session header：若仍未命中，可能是 aiwork 前置代理丢弃 session_id header"
-            return "未捕获 SDK header 注入点：没有真正发出 session_id header"
-        if not self._prefix_meets_threshold(info):
-            return "难命中：稳定前缀还不够长"
+            if not info.get("session_header_injected"):
+                return "未捕获 SDK header 注入点：没有真正发出 session_id header"
         if info.get("injected") is not True:
             return f"未注入：{self._format_note(info.get('note'))}"
         if info.get("observed_cached_tokens") and int(info.get("observed_cached_tokens") or 0) > 0:
             return "已命中：后台返回了 cached_tokens"
         if info.get("actual_prefix_same_as_previous") is False:
-            return "未稳定：真实请求前缀和上次不一致"
+            return "未稳定：按实际门槛截取的真实请求前缀和上次不一致"
         if info.get("prefix_same_as_previous") is False:
             return "未稳定：本次前缀和上次不一致"
         if info.get("actual_prefix_same_as_previous") is True and info.get("usage_observed") and int(info.get("observed_cached_tokens") or 0) == 0:
+            if info.get("session_cache_enabled") and info.get("session_header_injected"):
+                return "可能卡在站子：实际门槛前缀一致但 cached_tokens 为 0，请确认 aiwork 没丢 session_id header"
             return "可能未透传：真实请求前缀一致但 cached_tokens 为 0，上游可能不支持或缓存偶发失效"
         if info.get("actual_prefix_same_as_previous") is True and info.get("usage_note") == "usage not returned":
             return "无法确认：真实请求前缀一致，但上游没有返回 usage"
         if info.get("actual_prefix_same_as_previous") is True:
-            return "条件满足：真实请求前缀一致，等待后台返回 cached_tokens"
+            return f"条件满足：{effective_threshold} token 前缀一致，等待后台返回 cached_tokens"
         if info.get("prefix_same_as_previous") is True:
             return "部分稳定：稳定前缀一致，下一轮继续看真实请求前缀"
         if info.get("front_not_static") or info.get("dynamic_prefix") or info.get("media_prefix"):
@@ -335,14 +346,11 @@ class PromptCacheMaxPlugin(Star):
         return "首轮记录：下一轮相同前缀才好判断命中"
 
     def _format_dynamic_position(self, info: dict[str, Any]) -> str:
-        value = info.get("first_dynamic_token_estimate")
-        if value is None:
+        token_pos = self._first_dynamic_position(info)
+        if token_pos is None:
             return "未发现"
-        try:
-            token_pos = int(value)
-        except (TypeError, ValueError):
-            return str(value)
-        if token_pos < 1024:
+        threshold = self._effective_cache_threshold(info)
+        if threshold and token_pos < threshold:
             return f"约 {token_pos} token，太靠前"
         return f"约 {token_pos} token，已在缓存门槛后"
 
@@ -352,10 +360,40 @@ class PromptCacheMaxPlugin(Star):
         if provider == "anthropic":
             return tokens >= self._anthropic_threshold()
         if provider == "openai":
-            return tokens >= max(0, self._openai_threshold() - self._threshold_slack("openai"))
+            return tokens >= max(0, self._effective_cache_threshold(info) - self._threshold_slack("openai"))
         if provider == "gemini":
             return True
         return False
+
+    def _first_dynamic_position(self, info: dict[str, Any]) -> Optional[int]:
+        value = info.get("first_dynamic_token_estimate")
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _effective_cache_threshold(self, info: dict[str, Any]) -> int:
+        stored = info.get("effective_cache_threshold")
+        try:
+            if stored:
+                return int(stored)
+        except (TypeError, ValueError):
+            pass
+        provider = str(info.get("provider") or "")
+        model = str(info.get("model") or "")
+        base_url = str(info.get("base_url") or "")
+
+        class InspectInfo:
+            pass
+
+        inspect_info = InspectInfo()
+        inspect_info.provider = provider
+        inspect_info.model = model
+        inspect_info.base_url = base_url
+        inspect_info.base_url_host = str(info.get("base_url_host") or "")
+        return effective_cache_threshold(inspect_info, self.config)
 
     def _threshold_slack(self, provider: str) -> int:
         try:
@@ -396,9 +434,10 @@ class PromptCacheMaxPlugin(Star):
     def _cache_injection_enabled(self) -> bool:
         return bool(self.config.get("enabled", True) and self.config.get("cache_injection_enabled", False))
 
-    def _apply_stable_style_rules_to_request(self, req: Any) -> None:
+    def _apply_stable_style_rules_to_request(self, req: Any, model: str = "", base_url: str = "") -> None:
         current = getattr(req, "system_prompt", None)
-        updated, inserted = with_stable_style_rules(current, self.config)
+        target_config = config_with_effective_anchor_target(self.config, model, base_url)
+        updated, inserted = with_stable_style_rules(current, target_config)
         if not inserted:
             self._latest_style_rules = "already_present_or_disabled"
             return
@@ -534,12 +573,14 @@ class PromptCacheMaxPlugin(Star):
             model = str(getattr(provider, "model_name", "") or getattr(provider, "model", "") or kwargs.get("model", ""))
             base_url = plugin._provider_base_url(provider)
             payload = plugin._extract_payload(args, kwargs)
-            if apply_stable_style_rules_to_payload(payload, plugin.config):
+            target_config = config_with_effective_anchor_target(plugin.config, model, base_url)
+            if apply_stable_style_rules_to_payload(payload, target_config):
                 plugin._latest_style_rules = "payload_prepended"
             info = plugin._latest_info
             if info is None or info.provider != provider_family or (model and info.model and info.model != model):
                 info = plugin._build_info_from_payload(provider_family, model, base_url, payload)
-            risk_report = analyze_prefix_risks_from_payload(payload)
+            effective_threshold = effective_cache_threshold(info, plugin.config)
+            risk_report = analyze_prefix_risks_from_payload(payload, effective_threshold)
             plugin._latest_risk_report = risk_report
             if plugin._cache_injection_enabled():
                 result = inject_payload(payload, info, plugin.config, plugin.state, plugin._create_gemini_cache)
@@ -556,6 +597,7 @@ class PromptCacheMaxPlugin(Star):
                 getattr(result, "session_header_name", ""),
                 getattr(result, "session_cache_basis", ""),
                 False,
+                effective_threshold,
             )
             if result.injected:
                 plugin._latest_write_target = plugin._write_payload(provider_family, args, kwargs, result.payload)

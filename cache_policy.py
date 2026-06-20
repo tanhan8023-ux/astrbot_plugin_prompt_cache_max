@@ -165,6 +165,7 @@ class PrefixRiskReport:
     front_not_static: bool = False
     actual_prefix_fingerprint: str = ""
     actual_prefix_token_estimate: int = 0
+    actual_prefix_window_tokens: int = 1024
     first_dynamic_token_estimate: Optional[int] = None
     reasons: list[str] = field(default_factory=list)
 
@@ -425,6 +426,75 @@ def is_aiwork_host(host: str) -> bool:
     return str(host or "").strip().lower() == "aiwork.fans"
 
 
+def is_gemini_model(model: str) -> bool:
+    return "gemini" in str(model or "").lower()
+
+
+def aiwork_gemini_cache_threshold(model: str, host: str) -> int:
+    if not is_aiwork_host(host) or not is_gemini_model(model):
+        return 0
+    lowered = str(model or "").lower()
+    if "gemini-2.5" in lowered:
+        return 2048
+    if "gemini-3" in lowered or "gemini-3.5" in lowered:
+        return 4096
+    return 4096
+
+
+def aiwork_gemini_anchor_target_tokens(model: str, host: str) -> int:
+    threshold = aiwork_gemini_cache_threshold(model, host)
+    if threshold >= 4096:
+        return 6144
+    if threshold >= 2048:
+        return 3072
+    return 0
+
+
+def effective_openai_cache_threshold(info: PrefixInfo, config: dict[str, Any]) -> int:
+    aiwork_gemini_threshold = aiwork_gemini_cache_threshold(info.model, info.base_url_host)
+    if aiwork_gemini_threshold:
+        return aiwork_gemini_threshold
+    try:
+        return int(config.get("min_prefix_tokens", {}).get("openai", 1024))
+    except (TypeError, ValueError):
+        return 1024
+
+
+def effective_cache_threshold(info: PrefixInfo, config: dict[str, Any]) -> int:
+    if info.provider == "openai":
+        return effective_openai_cache_threshold(info, config)
+    if info.provider == "anthropic":
+        try:
+            return int(config.get("min_prefix_tokens", {}).get("anthropic", 512))
+        except (TypeError, ValueError):
+            return 512
+    if info.provider == "gemini":
+        model_key = "gemini_flash" if "flash" in info.model.lower() else "gemini_pro"
+        try:
+            return int(config.get("min_prefix_tokens", {}).get(model_key, 4096))
+        except (TypeError, ValueError):
+            return 4096
+    return 0
+
+
+def config_with_effective_anchor_target(config: dict[str, Any], model: str, base_url: str) -> dict[str, Any]:
+    target = aiwork_gemini_anchor_target_tokens(model, base_url_host(base_url))
+    if not target or not config.get("cache_injection_enabled", False):
+        return config
+    merged = deepcopy(config)
+    style_config = deepcopy(merged.get("stable_style_rules", {}))
+    if not isinstance(style_config, dict):
+        style_config = {}
+    try:
+        current_target = int(style_config.get("cache_anchor_target_tokens", 0) or 0)
+    except (TypeError, ValueError):
+        current_target = 0
+    if current_target < target:
+        style_config["cache_anchor_target_tokens"] = target
+    merged["stable_style_rules"] = style_config
+    return merged
+
+
 def aiwork_session_id(info: PrefixInfo, config: dict[str, Any]) -> str:
     seed = {
         "provider": info.provider,
@@ -583,20 +653,23 @@ class LightState:
         session_header_name: str = "",
         session_cache_basis: str = "",
         session_header_injected: bool = False,
+        effective_threshold: int = 0,
     ) -> None:
         history_key = f"{info.provider}:{info.model}:{info.base_url_host}"
         previous_fingerprint = self.prefix_history.get(history_key)
         same_as_previous = previous_fingerprint == info.fingerprint if previous_fingerprint else None
         self.prefix_history[history_key] = info.fingerprint
         actual_fingerprint = risk_report.actual_prefix_fingerprint if risk_report else ""
-        previous_actual_fingerprint = self.actual_prefix_history.get(history_key)
+        actual_window = int(risk_report.actual_prefix_window_tokens if risk_report else 0)
+        actual_history_key = f"{history_key}:actual:{actual_window or effective_threshold or 0}"
+        previous_actual_fingerprint = self.actual_prefix_history.get(actual_history_key)
         actual_same_as_previous = (
             previous_actual_fingerprint == actual_fingerprint
             if previous_actual_fingerprint and actual_fingerprint
             else None
         )
         if actual_fingerprint:
-            self.actual_prefix_history[history_key] = actual_fingerprint
+            self.actual_prefix_history[actual_history_key] = actual_fingerprint
         self.last_inspect = {
             "provider": info.provider,
             "model": info.model,
@@ -620,6 +693,8 @@ class LightState:
             "previous_actual_prefix_fingerprint": previous_actual_fingerprint[:12] if previous_actual_fingerprint else "",
             "actual_prefix_same_as_previous": actual_same_as_previous,
             "actual_prefix_token_estimate": int(risk_report.actual_prefix_token_estimate if risk_report else 0),
+            "actual_prefix_window_tokens": actual_window,
+            "effective_cache_threshold": int(effective_threshold or 0),
             "first_dynamic_token_estimate": (
                 risk_report.first_dynamic_token_estimate if risk_report else None
             ),
@@ -720,26 +795,31 @@ DYNAMIC_PREFIX_PATTERNS = [
 ]
 
 
-def analyze_prefix_risks_from_request(req: Any) -> PrefixRiskReport:
+def analyze_prefix_risks_from_request(req: Any, cache_threshold_tokens: int = 1024) -> PrefixRiskReport:
     sections: list[tuple[str, Any]] = [("system", getattr(req, "system_prompt", None))]
     contexts = getattr(req, "contexts", None)
     sections.extend(_front_context_sections(contexts))
-    return analyze_prefix_risks(sections)
+    return analyze_prefix_risks(sections, cache_threshold_tokens)
 
 
-def analyze_prefix_risks_from_payload(payload: dict[str, Any]) -> PrefixRiskReport:
+def analyze_prefix_risks_from_payload(payload: dict[str, Any], cache_threshold_tokens: int = 1024) -> PrefixRiskReport:
     sections: list[tuple[str, Any]] = []
     for key in ("system", "system_instruction"):
         if key in payload:
             sections.append((key, payload.get(key)))
     sections.extend(_front_context_sections(payload.get("messages") or payload.get("contents")))
-    return analyze_prefix_risks(sections)
+    return analyze_prefix_risks(sections, cache_threshold_tokens)
 
 
-def analyze_prefix_risks(sections: list[tuple[str, Any]]) -> PrefixRiskReport:
+def analyze_prefix_risks(sections: list[tuple[str, Any]], cache_threshold_tokens: int = 1024) -> PrefixRiskReport:
     report = PrefixRiskReport()
+    try:
+        threshold_tokens = max(1, int(cache_threshold_tokens or 1024))
+    except (TypeError, ValueError):
+        threshold_tokens = 1024
+    report.actual_prefix_window_tokens = threshold_tokens
     meaningful_sections = [(name, value) for name, value in sections if value not in (None, "", [], {})]
-    actual_prefix_text = _actual_prefix_text(meaningful_sections)
+    actual_prefix_text = _actual_prefix_text(meaningful_sections, threshold_tokens * 4)
     report.actual_prefix_fingerprint = stable_hash(actual_prefix_text)[:12] if actual_prefix_text else ""
     report.actual_prefix_token_estimate = estimate_tokens(actual_prefix_text) if actual_prefix_text else 0
     if meaningful_sections:
@@ -749,15 +829,18 @@ def analyze_prefix_risks(sections: list[tuple[str, Any]]) -> PrefixRiskReport:
             report.front_not_static = True
             report.reasons.append("front_not_static")
 
+    prefix_text_parts: list[str] = []
     for _name, value in meaningful_sections[:4]:
         text = _strip_plugin_stable_block(_flatten_text(value))
+        section_prefix_tokens = estimate_tokens("\n".join(prefix_text_parts)) if prefix_text_parts else 0
         dynamic_match = _first_dynamic_match(text)
         if dynamic_match and report.first_dynamic_token_estimate is None:
-            report.first_dynamic_token_estimate = estimate_tokens(text[: dynamic_match.start()])
-        if dynamic_match and estimate_tokens(text[: dynamic_match.start()]) < 1024:
+            report.first_dynamic_token_estimate = section_prefix_tokens + estimate_tokens(text[: dynamic_match.start()])
+        if dynamic_match and section_prefix_tokens + estimate_tokens(text[: dynamic_match.start()]) < threshold_tokens:
             report.dynamic_prefix = True
         if _contains_media(_strip_plugin_stable_block_value(value)):
             report.media_prefix = True
+        prefix_text_parts.append(text)
 
     if report.dynamic_prefix:
         report.reasons.append("dynamic_content_near_front")
@@ -881,7 +964,7 @@ def inject_payload(
     mutated = deepcopy(payload)
     minimums = config.get("min_prefix_tokens", {})
     if info.provider == "openai":
-        minimum = int(minimums.get("openai", 1024))
+        minimum = effective_openai_cache_threshold(info, config)
         session_cache_enabled = aiwork_session_cache_allowed(info, config)
         session_id_value = ""
         if session_cache_enabled:

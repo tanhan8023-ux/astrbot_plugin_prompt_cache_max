@@ -8,6 +8,8 @@ from astrbot_plugin_prompt_cache_max.cache_policy import (
     analyze_prefix_risks_from_payload,
     apply_stable_style_rules_to_payload,
     base_url_is_allowlisted,
+    config_with_effective_anchor_target,
+    effective_cache_threshold,
     inject_payload,
     merge_config,
     normalize_provider_with_config,
@@ -186,6 +188,84 @@ def test_aiwork_session_id_changes_by_model_or_cache_key(tmp_path: Path):
     first = inject_payload({}, base, config, state)
     assert first.session_header_value != inject_payload({}, different_model, config, state).session_header_value
     assert first.session_header_value != inject_payload({}, different_key, config, state).session_header_value
+
+
+def test_aiwork_gemini_3_uses_real_cache_threshold():
+    config = merge_config({})
+    info = PrefixInfo(
+        provider="openai",
+        model="gemini-3-flash-preview",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="b" * 64,
+        token_estimate=5000,
+        allowlisted=True,
+    )
+    assert effective_cache_threshold(info, config) == 4096
+
+
+def test_aiwork_gemini_25_uses_real_cache_threshold():
+    config = merge_config({})
+    info = PrefixInfo(
+        provider="openai",
+        model="gemini-2.5-flash",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="b" * 64,
+        token_estimate=5000,
+        allowlisted=True,
+    )
+    assert effective_cache_threshold(info, config) == 2048
+
+
+def test_aiwork_gemini_prefix_risk_uses_real_threshold_window():
+    stable_text = "鍥哄畾浜鸿" * 1800
+    trailing_text = "鍚庣疆鍐呭" * 3000
+    report = analyze_prefix_risks_from_payload(
+        {
+            "messages": [
+                {
+                    "role": "system",
+                    "content": stable_text + "\nCurrent datetime: 2026-05-29 00:06\n" + trailing_text,
+                }
+            ]
+        },
+        4096,
+    )
+    assert report.actual_prefix_window_tokens == 4096
+    assert report.actual_prefix_token_estimate >= 4096
+    assert report.first_dynamic_token_estimate is not None
+    assert report.first_dynamic_token_estimate < 4096
+    assert report.dynamic_prefix is True
+
+
+def test_dynamic_position_counts_previous_system_prefix():
+    report = analyze_prefix_risks_from_payload(
+        {
+            "messages": [
+                {"role": "system", "content": "鍥哄畾浜鸿" * 3000},
+                {"role": "user", "content": "Current datetime: 2026-05-29 00:06"},
+            ]
+        },
+        4096,
+    )
+    assert report.first_dynamic_token_estimate is not None
+    assert report.first_dynamic_token_estimate >= 4096
+    assert report.dynamic_prefix is False
+
+
+def test_aiwork_gemini_anchor_target_is_raised_to_cache_threshold():
+    config = merge_config({"cache_injection_enabled": True})
+    target_config = config_with_effective_anchor_target(
+        config,
+        "gemini-3-flash-preview",
+        "https://aiwork.fans/v1",
+    )
+    updated, inserted = with_stable_style_rules("鍘熸湰浜鸿", target_config)
+    assert inserted is True
+    assert estimate_tokens(updated) >= 6144
 
 
 def test_non_aiwork_does_not_inject_session_id(tmp_path: Path):

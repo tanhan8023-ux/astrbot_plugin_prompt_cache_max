@@ -1,6 +1,6 @@
 name: astrbot_plugin_prompt_cache_max
 desc: 帮助 OpenAI 兼容接口、Claude 和 Gemini 更容易复用服务端提示词缓存。
 help: 使用 /pcache stats、/pcache inspect、/pcache clear 查看或清理缓存状态。
-version: v0.6.6
+version: v0.6.7
 author: Codex
 repo: "https://github.com/tanhan8023-ux/astrbot_plugin_prompt_cache_max"

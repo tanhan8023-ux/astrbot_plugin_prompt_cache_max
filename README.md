@@ -47,6 +47,8 @@
 }
 ```
 
+0.6.7 起，aiwork.fans 如果使用 Gemini 模型，会按 Gemini 的真实缓存门槛判断，而不是继续按 OpenAI 兼容接口的 1024 token 判断：`gemini-3` / `gemini-3.5` 按 4096 token，`gemini-2.5` 按 2048 token。开启缓存注入后，插件会自动把稳定缓存锚点补到门槛后面，`/pcache inspect` 会显示“实际缓存门槛”和“检测窗口”。
+
 0.6.6 起，aiwork.fans 会在开启 `cache_injection_enabled` 后把稳定的 `session_id` 写入 HTTP Header。
 不要把 `session_id` 写进请求体或 `extra_body`：Sub2API sticky session 读取的是 header，AstrBot 的 OpenAI 调用链里塞 `extra_body` 还会触发 SDK 参数重复。
 这个 header 值由提供商、模型、接口域名和缓存键指纹生成，不包含用户原文、prompt 原文或聊天内容。
@@ -86,10 +88,10 @@ Header 注入状态：已注入
 
 真正命中缓存要满足“前缀完全一致”：固定人设、世界书、长期规则放最前面；
 当前时间、离线时长、状态栏、音乐感知、当前消息、最近聊天、图片/GIF 放后面。
-如果 `/pcache inspect` 里的首个动态内容位置贴近 1024，命中率会低。
-当前版本在开启缓存注入时会自动追加固定“缓存稳定锚点”，默认垫到约 3072 token，
+如果 `/pcache inspect` 里的首个动态内容位置贴近“实际缓存门槛”，命中率会低。
+当前版本在开启缓存注入时会自动追加固定“缓存稳定锚点”；aiwork + `gemini-3` 会垫到约 6144 token，aiwork + `gemini-2.5` 会垫到约 3072 token，
 把动态时间、状态栏、最近聊天、图片/GIF 尽量挤到缓存窗口后面。
 想提高命中率，重点看“真实请求前缀是否一致”和“首个动态内容位置估算”。
-真实请求前缀要连续一致，首个动态内容最好出现在 1024 token 之后；更稳妥是 1536 token 之后，推荐 3072 token 之后。
+真实请求前缀要连续一致，首个动态内容必须出现在 inspect 显示的实际缓存门槛之后；`gemini-3` 建议放到 4096 token 之后，更稳妥是 6144 token 之后。
 当前版本不会通过 payload 强制 `stream=true`，避免 AstrBot/OpenAI SDK 出现重复 stream 参数。
 如果请求本身已经是流式，插件会补 `stream_options.include_usage=true`，用于让上游更容易返回 usage 和 `cached_tokens`。
