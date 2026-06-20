@@ -196,13 +196,25 @@
         "description": "自定义稳定风格文本。留空时使用内置温柔轻微毒舌风格。",
         "type": "string",
         "default": ""
+      },
+      "cache_anchor_enabled": {
+        "description": "是否追加稳定缓存锚点。开启后会增加固定前缀长度，帮助真实命中 cached_tokens，但不会要求回复固定。",
+        "type": "bool",
+        "default": true
+      },
+      "cache_anchor_text": {
+        "description": "自定义稳定缓存锚点文本。留空时使用内置锚点。",
+        "type": "string",
+        "default": ""
       }
     },
     "default": {
       "enabled": false,
       "prepend_to_system_prompt": true,
       "mode": "warm_soft_sarcasm",
-      "text": ""
+      "text": "",
+      "cache_anchor_enabled": true,
+      "cache_anchor_text": ""
     }
   },
   "exact_response_cache": {

@@ -21,7 +21,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.5.2"
+PLUGIN_VERSION = "0.5.4"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -263,7 +263,10 @@ class PromptCacheMaxPlugin(Star):
             "dynamic_content_near_front": "时间/状态栏/检索摘要/动态记忆疑似太靠前",
             "media_near_front": "图片或 GIF 疑似太靠前",
         }
-        return "；".join(mapping.get(reason, str(reason)) for reason in reasons)
+        text = "；".join(mapping.get(reason, str(reason)) for reason in reasons)
+        if info.get("prefix_same_as_previous") is True:
+            return f"风险提示，但本轮前缀指纹一致：{text}"
+        return text
 
     def _format_cache_verdict(self, info: dict[str, Any]) -> str:
         if not info.get("allowlisted"):
@@ -274,8 +277,6 @@ class PromptCacheMaxPlugin(Star):
             return "不会命中：cache_injection_enabled 未开启"
         if not self._prefix_meets_threshold(info):
             return "难命中：稳定前缀还不够长"
-        if info.get("front_not_static") or info.get("dynamic_prefix") or info.get("media_prefix"):
-            return "难命中：动态内容或图片/GIF 靠前，前缀容易变化"
         if info.get("injected") is not True:
             return f"未注入：{self._format_note(info.get('note'))}"
         if info.get("observed_cached_tokens") and int(info.get("observed_cached_tokens") or 0) > 0:
@@ -286,6 +287,8 @@ class PromptCacheMaxPlugin(Star):
             return "可能未透传：前缀一致但 cached_tokens 为 0，上游可能不支持或没返回统计"
         if info.get("prefix_same_as_previous") is True:
             return "条件满足：前缀一致，等待后台返回 cached_tokens"
+        if info.get("front_not_static") or info.get("dynamic_prefix") or info.get("media_prefix"):
+            return "有风险：动态内容或图片/GIF 靠前，下一轮如果变化会影响命中"
         return "首轮记录：下一轮相同前缀才好判断命中"
 
     def _prefix_meets_threshold(self, info: dict[str, Any]) -> bool:

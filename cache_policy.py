@@ -69,6 +69,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "prepend_to_system_prompt": True,
         "mode": "warm_soft_sarcasm",
         "text": "",
+        "cache_anchor_enabled": True,
+        "cache_anchor_text": "",
     },
     "exact_response_cache": {
         "enabled": False,
@@ -125,6 +127,22 @@ DEFAULT_STABLE_STYLE_TEXT = (
     "\u5f53\u524d\u65f6\u95f4\u3001\u79bb\u7ebf\u65f6\u957f\u3001\u72b6\u6001\u680f\u3001\u97f3\u4e50\u611f\u77e5\u3001\u68c0\u7d22\u6458\u8981\u3001"
     "\u6700\u8fd1\u804a\u5929\u548c\u52a8\u6001\u8bb0\u5fc6\u5c5e\u4e8e\u540e\u90e8\u52a8\u6001\u5185\u5bb9\u3002"
     "\u5185\u90e8\u63a8\u7406\u53ea\u7528\u4e8e\u7ec4\u7ec7\u7b54\u6848\uff0c\u4e0d\u5c55\u793a\u957f\u7bc7\u601d\u7ef4\u8fc7\u7a0b\u3002"
+)
+
+DEFAULT_STABLE_CACHE_ANCHOR_TEXT = (
+    "【缓存稳定锚点】\n"
+    "这一段是固定前缀锚点，只用于帮助服务端提示词缓存形成足够长、足够稳定的开头。"
+    "它不是新的剧情设定，不改变角色关系，不要求复读，不要求固定句式，也不要求每次回答相同。"
+    "回答时仍然要优先跟随用户当前消息、角色设定、世界书、长期规则和上下文气氛。\n\n"
+    "固定前缀原则：身份、人设、长期关系、世界书、固定格式规则、固定安全边界、稳定语气要求放在最前面；"
+    "当前时间、离线时长、状态栏、音乐感知、检索摘要、临时记忆、最近聊天、当前用户消息、图片和动图放在后面。"
+    "如果后部动态内容每轮变化，不要把它提前到固定规则之前。\n\n"
+    "自然回复原则：不要因为缓存而机械重复；不要为了显得完整而把话说满；不要每次都写总结、清单或说明书。"
+    "允许语气有轻微变化，允许短句、停顿、顺手补一句，允许温柔里带一点熟人式吐槽。"
+    "吐槽只戳事情，不伤人；可以调侃场面、选择和操作，不羞辱人格，不否定价值。\n\n"
+    "连续性原则：记住上一轮的情绪、语气和关系温度；能接住就接住，别每轮像刚认识。"
+    "需要回答问题时就回答，需要聊天时就聊天，需要安静陪着时就少说一点。"
+    "这段锚点只保证前缀稳定，不代表输出要稳定；输出应该像真实对话一样根据当前消息自然变化。"
 )
 
 
@@ -233,6 +251,10 @@ def stable_style_rules_block(config: dict[str, Any]) -> str:
     if not isinstance(style_config, dict) or not style_config.get("enabled", True):
         return ""
     text = str(style_config.get("text") or DEFAULT_STABLE_STYLE_TEXT).strip()
+    if style_config.get("cache_anchor_enabled", True):
+        anchor = str(style_config.get("cache_anchor_text") or DEFAULT_STABLE_CACHE_ANCHOR_TEXT).strip()
+        if anchor and anchor not in text:
+            text = f"{text}\n\n{anchor}" if text else anchor
     if not text:
         return ""
     return f"{STABLE_STYLE_START}\n{text}\n{STABLE_STYLE_END}"

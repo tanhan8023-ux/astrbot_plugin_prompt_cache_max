@@ -3,6 +3,7 @@ from pathlib import Path
 from astrbot_plugin_prompt_cache_max.cache_policy import (
     LightState,
     PrefixInfo,
+    DEFAULT_STABLE_CACHE_ANCHOR_TEXT,
     STABLE_STYLE_START,
     analyze_prefix_risks_from_payload,
     apply_stable_style_rules_to_payload,
@@ -202,6 +203,7 @@ def test_stable_style_rules_prepend_once():
     updated, inserted = with_stable_style_rules("原本人设", config)
     assert inserted is True
     assert updated.startswith(STABLE_STYLE_START)
+    assert "缓存稳定锚点" in updated
     assert updated.endswith("原本人设")
 
     updated_again, inserted_again = with_stable_style_rules(updated, config)
@@ -214,6 +216,14 @@ def test_stable_style_rules_can_be_disabled():
     updated, inserted = with_stable_style_rules("原本人设", config)
     assert inserted is False
     assert updated == "原本人设"
+
+
+def test_stable_cache_anchor_can_be_disabled():
+    config = merge_config({"stable_style_rules": {"enabled": True, "cache_anchor_enabled": False}})
+    updated, inserted = with_stable_style_rules("原本人设", config)
+    assert inserted is True
+    assert "缓存稳定锚点" not in updated
+    assert DEFAULT_STABLE_CACHE_ANCHOR_TEXT not in updated
 
 
 def test_stable_style_rules_apply_to_payload_messages():
