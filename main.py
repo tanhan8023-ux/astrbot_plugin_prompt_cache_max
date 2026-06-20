@@ -23,7 +23,7 @@ from .cache_policy import (
     with_stable_style_rules,
 )
 
-PLUGIN_VERSION = "0.6.7"
+PLUGIN_VERSION = "0.6.8"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -208,6 +208,7 @@ class PromptCacheMaxPlugin(Star):
             f"- 前缀长度估算：{info.get('token_estimate')}\n"
             f"- 真实请求前缀估算：{info.get('actual_prefix_token_estimate') or 0}\n"
             f"- 首个动态内容位置估算：{self._format_dynamic_position(info)}\n"
+            f"- 去掉插件锚点后的动态位置：{self._format_dynamic_position_without_anchor(info)}\n"
             f"- 稳定前缀是否够长：{self._format_bool(self._prefix_meets_threshold(info))}\n"
             f"- OpenAI兼容门槛：{self._openai_threshold()}\n"
             f"- Claude门槛：{self._anthropic_threshold()}\n"
@@ -353,6 +354,16 @@ class PromptCacheMaxPlugin(Star):
         if threshold and token_pos < threshold:
             return f"约 {token_pos} token，太靠前"
         return f"约 {token_pos} token，已在缓存门槛后"
+
+    def _format_dynamic_position_without_anchor(self, info: dict[str, Any]) -> str:
+        value = info.get("first_dynamic_without_anchor_token_estimate")
+        if value is None:
+            return "未发现"
+        try:
+            token_pos = int(value)
+        except (TypeError, ValueError):
+            return str(value)
+        return f"约 {token_pos} token，仅用于诊断"
 
     def _prefix_meets_threshold(self, info: dict[str, Any]) -> bool:
         provider = str(info.get("provider") or "")

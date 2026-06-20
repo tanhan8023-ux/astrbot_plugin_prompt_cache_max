@@ -109,7 +109,7 @@
     "default": true
   },
   "aiwork_session_cache_enabled": {
-    "description": "aiwork.fans 专用 Session 缓存。开启缓存注入时，会给 aiwork 请求发送稳定的 session_id header；使用 Gemini 模型时会自动按 2048/4096 的真实缓存门槛处理。",
+    "description": "aiwork.fans 专用 Session 缓存。开启缓存注入时，会给 aiwork 请求发送稳定的 session_id header；使用 Gemini 模型时会自动按 2048/4096 的真实缓存门槛处理，并加厚稳定锚点。",
     "type": "bool",
     "default": true
   },

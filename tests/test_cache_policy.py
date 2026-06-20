@@ -265,7 +265,24 @@ def test_aiwork_gemini_anchor_target_is_raised_to_cache_threshold():
     )
     updated, inserted = with_stable_style_rules("鍘熸湰浜鸿", target_config)
     assert inserted is True
-    assert estimate_tokens(updated) >= 6144
+    assert estimate_tokens(updated) >= 12288
+
+
+def test_dynamic_position_includes_plugin_anchor():
+    config = merge_config({"cache_injection_enabled": True})
+    target_config = config_with_effective_anchor_target(
+        config,
+        "gemini-3-flash-preview",
+        "https://aiwork.fans/v1",
+    )
+    updated, inserted = with_stable_style_rules("鍘熸湰浜鸿\nCurrent datetime: 2026-05-29 00:06", target_config)
+    assert inserted is True
+    report = analyze_prefix_risks_from_payload({"messages": [{"role": "system", "content": updated}]}, 4096)
+    assert report.first_dynamic_token_estimate is not None
+    assert report.first_dynamic_token_estimate >= 4096
+    assert report.first_dynamic_without_anchor_token_estimate is not None
+    assert report.first_dynamic_without_anchor_token_estimate < 4096
+    assert report.dynamic_prefix is False
 
 
 def test_non_aiwork_does_not_inject_session_id(tmp_path: Path):

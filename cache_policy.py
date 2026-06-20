@@ -167,6 +167,7 @@ class PrefixRiskReport:
     actual_prefix_token_estimate: int = 0
     actual_prefix_window_tokens: int = 1024
     first_dynamic_token_estimate: Optional[int] = None
+    first_dynamic_without_anchor_token_estimate: Optional[int] = None
     reasons: list[str] = field(default_factory=list)
 
 
@@ -444,9 +445,9 @@ def aiwork_gemini_cache_threshold(model: str, host: str) -> int:
 def aiwork_gemini_anchor_target_tokens(model: str, host: str) -> int:
     threshold = aiwork_gemini_cache_threshold(model, host)
     if threshold >= 4096:
-        return 6144
+        return 12288
     if threshold >= 2048:
-        return 3072
+        return 6144
     return 0
 
 
@@ -695,8 +696,9 @@ class LightState:
             "actual_prefix_token_estimate": int(risk_report.actual_prefix_token_estimate if risk_report else 0),
             "actual_prefix_window_tokens": actual_window,
             "effective_cache_threshold": int(effective_threshold or 0),
-            "first_dynamic_token_estimate": (
-                risk_report.first_dynamic_token_estimate if risk_report else None
+            "first_dynamic_token_estimate": risk_report.first_dynamic_token_estimate if risk_report else None,
+            "first_dynamic_without_anchor_token_estimate": (
+                risk_report.first_dynamic_without_anchor_token_estimate if risk_report else None
             ),
             "dynamic_prefix": bool(risk_report and risk_report.dynamic_prefix),
             "media_prefix": bool(risk_report and risk_report.media_prefix),
@@ -829,18 +831,37 @@ def analyze_prefix_risks(sections: list[tuple[str, Any]], cache_threshold_tokens
             report.front_not_static = True
             report.reasons.append("front_not_static")
 
-    prefix_text_parts: list[str] = []
+    raw_prefix_text_parts: list[str] = []
+    stripped_prefix_text_parts: list[str] = []
     for _name, value in meaningful_sections[:4]:
-        text = _strip_plugin_stable_block(_flatten_text(value))
-        section_prefix_tokens = estimate_tokens("\n".join(prefix_text_parts)) if prefix_text_parts else 0
-        dynamic_match = _first_dynamic_match(text)
-        if dynamic_match and report.first_dynamic_token_estimate is None:
-            report.first_dynamic_token_estimate = section_prefix_tokens + estimate_tokens(text[: dynamic_match.start()])
-        if dynamic_match and section_prefix_tokens + estimate_tokens(text[: dynamic_match.start()]) < threshold_tokens:
+        raw_text = _flatten_text(value)
+        stripped_text = _strip_plugin_stable_block(raw_text)
+        raw_section_prefix_tokens = estimate_tokens("\n".join(raw_prefix_text_parts)) if raw_prefix_text_parts else 0
+        stripped_section_prefix_tokens = (
+            estimate_tokens("\n".join(stripped_prefix_text_parts)) if stripped_prefix_text_parts else 0
+        )
+        stripped_dynamic_match = _first_dynamic_match(stripped_text)
+        if stripped_dynamic_match and report.first_dynamic_without_anchor_token_estimate is None:
+            report.first_dynamic_without_anchor_token_estimate = stripped_section_prefix_tokens + estimate_tokens(
+                stripped_text[: stripped_dynamic_match.start()]
+            )
+
+        if stripped_dynamic_match:
+            anchor_offset = max(0, estimate_tokens(raw_text) - estimate_tokens(stripped_text))
+            dynamic_position = raw_section_prefix_tokens + anchor_offset + estimate_tokens(
+                stripped_text[: stripped_dynamic_match.start()]
+            )
+        else:
+            dynamic_position = None
+
+        if dynamic_position is not None and report.first_dynamic_token_estimate is None:
+            report.first_dynamic_token_estimate = dynamic_position
+        if dynamic_position is not None and dynamic_position < threshold_tokens:
             report.dynamic_prefix = True
         if _contains_media(_strip_plugin_stable_block_value(value)):
             report.media_prefix = True
-        prefix_text_parts.append(text)
+        raw_prefix_text_parts.append(raw_text)
+        stripped_prefix_text_parts.append(stripped_text)
 
     if report.dynamic_prefix:
         report.reasons.append("dynamic_content_near_front")
