@@ -41,6 +41,8 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
     denied = inject_payload({}, make_info("openai", False), config, state)
     assert allowed.injected is True
     assert allowed.payload["prompt_cache_key"] == "b" * 64
+    assert allowed.payload["extra_body"]["prompt_cache_key"] == "b" * 64
+    assert allowed.payload["custom_extra_body"]["prompt_cache_key"] == "b" * 64
     assert "prompt_cache_retention" not in allowed.payload
     assert denied.injected is False
     assert "prompt_cache_key" not in denied.payload
@@ -52,6 +54,16 @@ def test_openai_stream_payload_requests_usage(tmp_path: Path):
     result = inject_payload({"stream": True}, make_info("openai", True), config, state)
     assert result.injected is True
     assert result.payload["stream_options"]["include_usage"] is True
+
+
+def test_openai_cache_key_extra_body_can_be_disabled(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True, "openai_cache_key_extra_body": False})
+    state = make_state(tmp_path)
+    result = inject_payload({}, make_info("openai", True), config, state)
+    assert result.injected is True
+    assert result.payload["prompt_cache_key"] == "b" * 64
+    assert "extra_body" not in result.payload
+    assert "custom_extra_body" not in result.payload
 
 
 def test_cache_injection_disabled_by_default(tmp_path: Path):
@@ -85,6 +97,7 @@ def test_aiwork_openai_payload_only_sends_cache_key(tmp_path: Path):
     result = inject_payload({}, info, config, state)
     assert result.injected is True
     assert result.payload["prompt_cache_key"] == "b" * 64
+    assert result.payload["extra_body"]["prompt_cache_key"] == "b" * 64
     assert "prompt_cache_retention" not in result.payload
 
 

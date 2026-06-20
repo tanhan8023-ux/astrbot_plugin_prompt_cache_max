@@ -110,6 +110,11 @@
     "type": "bool",
     "default": true
   },
+  "openai_cache_key_extra_body": {
+    "description": "把 prompt_cache_key 同时写入 extra_body/custom_extra_body。部分中转站或 SDK 只会透传 extra_body，想提高真实命中率建议保持开启。",
+    "type": "bool",
+    "default": true
+  },
   "min_prefix_tokens": {
     "description": "稳定前缀达到多少估算 token 后，才尝试发送缓存提示。",
     "type": "object",

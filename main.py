@@ -21,7 +21,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.5.7"
+PLUGIN_VERSION = "0.5.8"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -207,6 +207,7 @@ class PromptCacheMaxPlugin(Star):
             f"- 接口是否在白名单：{self._format_bool(info.get('allowlisted'))}\n"
             f"- 白名单是否包含55系接口：{self._format_bool(self._allowlist_has_55ai())}\n"
             f"- 本次是否已注入：{self._format_bool(info.get('injected'))}\n"
+            f"- 缓存键写入方式：{self._format_cache_key_mode()}\n"
             f"- 本轮已缓存 token：{self._format_cached_tokens(info)}\n"
             f"- Usage 状态：{self._format_usage_note(info)}\n"
             f"- 前缀风险：{self._format_risk_reasons(info)}\n"
@@ -264,6 +265,11 @@ class PromptCacheMaxPlugin(Star):
         if note == "usage not returned":
             return "上游本轮没有返回 usage，无法确认 cached_tokens"
         return "等待模型响应统计"
+
+    def _format_cache_key_mode(self) -> str:
+        if self.config.get("openai_cache_key_extra_body", True):
+            return "顶层 + extra_body 双写"
+        return "仅顶层"
 
     def _format_risk_reasons(self, info: dict[str, Any]) -> str:
         reasons = list(info.get("risk_reasons") or [])
