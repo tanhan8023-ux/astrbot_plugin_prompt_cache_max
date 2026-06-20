@@ -71,7 +71,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "text": "",
         "cache_anchor_enabled": True,
         "cache_anchor_text": "",
-        "cache_anchor_target_tokens": 1536,
+        "cache_anchor_target_tokens": 3072,
+        "cache_anchor_auto_when_injecting": True,
     },
     "exact_response_cache": {
         "enabled": False,
@@ -252,9 +253,13 @@ def threshold_note(base: str, token_estimate: int, minimum: int) -> str:
 
 def stable_style_rules_block(config: dict[str, Any]) -> str:
     style_config = config.get("stable_style_rules", {})
-    if not isinstance(style_config, dict) or not style_config.get("enabled", True):
+    if not isinstance(style_config, dict):
         return ""
-    text = str(style_config.get("text") or DEFAULT_STABLE_STYLE_TEXT).strip()
+    style_enabled = bool(style_config.get("enabled", False))
+    auto_anchor = bool(config.get("cache_injection_enabled", False) and style_config.get("cache_anchor_auto_when_injecting", True))
+    if not style_enabled and not auto_anchor:
+        return ""
+    text = str(style_config.get("text") or DEFAULT_STABLE_STYLE_TEXT).strip() if style_enabled else ""
     if style_config.get("cache_anchor_enabled", True):
         anchor = str(style_config.get("cache_anchor_text") or DEFAULT_STABLE_CACHE_ANCHOR_TEXT).strip()
         if anchor and anchor not in text:
@@ -269,9 +274,9 @@ def _pad_stable_anchor_text(text: str, style_config: dict[str, Any]) -> str:
     if not style_config.get("cache_anchor_enabled", True):
         return text
     try:
-        target_tokens = int(style_config.get("cache_anchor_target_tokens", 1536) or 0)
+        target_tokens = int(style_config.get("cache_anchor_target_tokens", 3072) or 0)
     except (TypeError, ValueError):
-        target_tokens = 1536
+        target_tokens = 3072
     if target_tokens <= 0:
         return text
     filler = (
@@ -694,11 +699,11 @@ def build_prefix_info(
 
 
 DYNAMIC_PREFIX_PATTERNS = [
-    ("time", re.compile(r"(current datetime|current time|当前时间|当前日期|现在时间|北京时间|\d{4}[-/]\d{1,2}[-/]\d{1,2})", re.I)),
-    ("status", re.compile(r"(状态栏|当前状态|离线时长|在线状态|心情值|体力值)", re.I)),
-    ("retrieval", re.compile(r"(检索摘要|搜索结果|知识库结果|retrieval|search result)", re.I)),
-    ("music", re.compile(r"(音乐感知|正在听|now playing|spotify|网易云)", re.I)),
-    ("memory", re.compile(r"(动态记忆|短期记忆|recent memory|临时记忆)", re.I)),
+    ("time", re.compile(r"(current datetime\s*:|current time\s*:|当前时间\s*[：:]|当前日期\s*[：:]|现在时间\s*[：:]|北京时间\s*[：:]|\d{4}[-/]\d{1,2}[-/]\d{1,2})", re.I)),
+    ("status", re.compile(r"(状态栏\s*[：:]|当前状态\s*[：:]|离线时长\s*[：:]|在线状态\s*[：:]|心情值\s*[：:]|体力值\s*[：:])", re.I)),
+    ("retrieval", re.compile(r"(检索摘要\s*[：:]|搜索结果\s*[：:]|知识库结果\s*[：:]|retrieval\s*:|search result\s*:)", re.I)),
+    ("music", re.compile(r"(音乐感知\s*[：:]|正在听\s*[：:]|now playing\s*:|spotify\s*:|网易云\s*[：:])", re.I)),
+    ("memory", re.compile(r"(动态记忆\s*[：:]|短期记忆\s*[：:]|recent memory\s*:|临时记忆\s*[：:])", re.I)),
 ]
 
 
@@ -732,13 +737,13 @@ def analyze_prefix_risks(sections: list[tuple[str, Any]]) -> PrefixRiskReport:
             report.reasons.append("front_not_static")
 
     for _name, value in meaningful_sections[:4]:
-        text = _flatten_text(value)
+        text = _strip_plugin_stable_block(_flatten_text(value))
         dynamic_match = _first_dynamic_match(text)
         if dynamic_match:
             report.dynamic_prefix = True
             if report.first_dynamic_token_estimate is None:
                 report.first_dynamic_token_estimate = estimate_tokens(text[: dynamic_match.start()])
-        if _contains_media(value):
+        if _contains_media(_strip_plugin_stable_block_value(value)):
             report.media_prefix = True
 
     if report.dynamic_prefix:
@@ -767,6 +772,28 @@ def _first_dynamic_match(text: str) -> Optional[re.Match[str]]:
     if not matches:
         return None
     return min(matches, key=lambda item: item.start())
+
+
+def _strip_plugin_stable_block(text: str) -> str:
+    if STABLE_STYLE_START.lower() not in text:
+        return text
+    pattern = re.compile(
+        re.escape(STABLE_STYLE_START.lower()) + r".*?" + re.escape(STABLE_STYLE_END.lower()),
+        re.S,
+    )
+    return pattern.sub("", text)
+
+
+def _strip_plugin_stable_block_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return _strip_plugin_stable_block(value.lower())
+    if isinstance(value, dict):
+        return {key: _strip_plugin_stable_block_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_strip_plugin_stable_block_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_plugin_stable_block_value(item) for item in value)
+    return value
 
 
 def _front_context_sections(contexts: Any) -> list[tuple[str, Any]]:

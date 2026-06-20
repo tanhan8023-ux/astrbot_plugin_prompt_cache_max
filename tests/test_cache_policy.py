@@ -234,6 +234,14 @@ def test_stable_cache_anchor_pads_to_target_tokens():
     assert estimate_tokens(updated) >= 1536
 
 
+def test_cache_anchor_auto_when_cache_injection_enabled():
+    config = merge_config({"cache_injection_enabled": True})
+    updated, inserted = with_stable_style_rules("原本人设", config)
+    assert inserted is True
+    assert "缓存稳定锚点" in updated
+    assert estimate_tokens(updated) >= 3072
+
+
 def test_stable_style_rules_apply_to_payload_messages():
     config = merge_config({"stable_style_rules": {"enabled": True}})
     payload = {"messages": [{"role": "user", "content": "你好"}]}

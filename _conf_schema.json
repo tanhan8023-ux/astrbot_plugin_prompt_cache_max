@@ -208,9 +208,14 @@
         "default": ""
       },
       "cache_anchor_target_tokens": {
-        "description": "稳定缓存锚点目标长度。建议至少 1536，让动态内容尽量排到 OpenAI 兼容缓存门槛后面。",
+        "description": "稳定缓存锚点目标长度。建议至少 3072，让动态内容尽量排到 OpenAI 兼容缓存门槛后面。",
         "type": "int",
-        "default": 1536
+        "default": 3072
+      },
+      "cache_anchor_auto_when_injecting": {
+        "description": "开启缓存注入时自动追加稳定缓存锚点。想提高真实命中率建议保持开启。",
+        "type": "bool",
+        "default": true
       }
     },
     "default": {
@@ -220,7 +225,8 @@
       "text": "",
       "cache_anchor_enabled": true,
       "cache_anchor_text": "",
-      "cache_anchor_target_tokens": 1536
+      "cache_anchor_target_tokens": 3072,
+      "cache_anchor_auto_when_injecting": true
     }
   },
   "exact_response_cache": {
