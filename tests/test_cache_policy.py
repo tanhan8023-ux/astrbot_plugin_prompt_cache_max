@@ -46,6 +46,14 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
     assert "prompt_cache_key" not in denied.payload
 
 
+def test_openai_stream_payload_requests_usage(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True})
+    state = make_state(tmp_path)
+    result = inject_payload({"stream": True}, make_info("openai", True), config, state)
+    assert result.injected is True
+    assert result.payload["stream_options"]["include_usage"] is True
+
+
 def test_cache_injection_disabled_by_default(tmp_path: Path):
     config = merge_config({})
     state = make_state(tmp_path)
@@ -184,6 +192,21 @@ def test_prefix_risk_detects_dynamic_content_near_front():
     )
     assert report.dynamic_prefix is True
     assert "dynamic_content_near_front" in report.reasons
+
+
+def test_prefix_risk_ignores_dynamic_content_after_cache_window():
+    report = analyze_prefix_risks_from_payload(
+        {
+            "messages": [
+                {"role": "system", "content": "固定人设" * 900 + "\n当前时间: 2026-05-29 00:06"},
+                {"role": "user", "content": "你好"},
+            ]
+        }
+    )
+    assert report.first_dynamic_token_estimate is not None
+    assert report.first_dynamic_token_estimate >= 1024
+    assert report.dynamic_prefix is False
+    assert "dynamic_content_near_front" not in report.reasons
 
 
 def test_prefix_risk_detects_media_near_front():

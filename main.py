@@ -21,7 +21,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.5.6"
+PLUGIN_VERSION = "0.5.7"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -208,6 +208,7 @@ class PromptCacheMaxPlugin(Star):
             f"- 白名单是否包含55系接口：{self._format_bool(self._allowlist_has_55ai())}\n"
             f"- 本次是否已注入：{self._format_bool(info.get('injected'))}\n"
             f"- 本轮已缓存 token：{self._format_cached_tokens(info)}\n"
+            f"- Usage 状态：{self._format_usage_note(info)}\n"
             f"- 前缀风险：{self._format_risk_reasons(info)}\n"
             f"- 写入位置：{self._format_note(self._latest_write_target)}\n"
             f"- 缓存标记点数量：{getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
@@ -256,6 +257,14 @@ class PromptCacheMaxPlugin(Star):
             return "还没读到 usage"
         return str(value)
 
+    def _format_usage_note(self, info: dict[str, Any]) -> str:
+        note = str(info.get("usage_note") or "")
+        if note == "observed":
+            return "已读到 usage"
+        if note == "usage not returned":
+            return "上游本轮没有返回 usage，无法确认 cached_tokens"
+        return "等待模型响应统计"
+
     def _format_risk_reasons(self, info: dict[str, Any]) -> str:
         reasons = list(info.get("risk_reasons") or [])
         if info.get("front_not_static") and "front_not_static" not in reasons:
@@ -291,6 +300,8 @@ class PromptCacheMaxPlugin(Star):
             return "未稳定：本次前缀和上次不一致"
         if info.get("actual_prefix_same_as_previous") is True and info.get("usage_observed") and int(info.get("observed_cached_tokens") or 0) == 0:
             return "可能未透传：真实请求前缀一致但 cached_tokens 为 0，上游可能不支持或缓存偶发失效"
+        if info.get("actual_prefix_same_as_previous") is True and info.get("usage_note") == "usage not returned":
+            return "无法确认：真实请求前缀一致，但上游没有返回 usage"
         if info.get("actual_prefix_same_as_previous") is True:
             return "条件满足：真实请求前缀一致，等待后台返回 cached_tokens"
         if info.get("prefix_same_as_previous") is True:
@@ -688,6 +699,11 @@ class PromptCacheMaxPlugin(Star):
         for attr in ("usage", "raw_usage"):
             if hasattr(response, attr):
                 return getattr(response, attr)
+        for attr in ("raw_response", "response", "completion", "data"):
+            if hasattr(response, attr):
+                nested_usage = self._extract_usage_from_response(getattr(response, attr))
+                if nested_usage:
+                    return nested_usage
         if isinstance(response, dict):
             usage = response.get("usage") or response.get("usage_metadata") or response.get("usageMetadata") or {}
             if "input_cached" in response:

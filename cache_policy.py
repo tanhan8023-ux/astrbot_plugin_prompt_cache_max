@@ -51,6 +51,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "openai_prompt_cache_retention_blocked_hosts": [
         "aiwork.fans",
     ],
+    "openai_stream_include_usage": True,
     "min_prefix_tokens": {
         "openai": 1024,
         "gemini_flash": 1024,
@@ -620,11 +621,15 @@ class LightState:
         for field_name, value in extracted.items():
             bucket[field_name] = bucket.get(field_name, 0) + int(value or 0)
         if self.last_inspect.get("provider") == provider and self.last_inspect.get("model") == model:
-            observed_cached = int(extracted.get("cached_tokens", 0) or 0) + int(
-                extracted.get("cache_read_tokens", 0) or 0
-            )
-            self.last_inspect["usage_observed"] = bool(extracted)
-            self.last_inspect["observed_cached_tokens"] = observed_cached
+            if extracted:
+                observed_cached = int(extracted.get("cached_tokens", 0) or 0) + int(
+                    extracted.get("cache_read_tokens", 0) or 0
+                )
+                self.last_inspect["usage_observed"] = True
+                self.last_inspect["observed_cached_tokens"] = observed_cached
+                self.last_inspect["usage_note"] = "observed"
+            else:
+                self.last_inspect.setdefault("usage_note", "usage not returned")
         self.save()
         return extracted
 
@@ -739,10 +744,10 @@ def analyze_prefix_risks(sections: list[tuple[str, Any]]) -> PrefixRiskReport:
     for _name, value in meaningful_sections[:4]:
         text = _strip_plugin_stable_block(_flatten_text(value))
         dynamic_match = _first_dynamic_match(text)
-        if dynamic_match:
+        if dynamic_match and report.first_dynamic_token_estimate is None:
+            report.first_dynamic_token_estimate = estimate_tokens(text[: dynamic_match.start()])
+        if dynamic_match and estimate_tokens(text[: dynamic_match.start()]) < 1024:
             report.dynamic_prefix = True
-            if report.first_dynamic_token_estimate is None:
-                report.first_dynamic_token_estimate = estimate_tokens(text[: dynamic_match.start()])
         if _contains_media(_strip_plugin_stable_block_value(value)):
             report.media_prefix = True
 
@@ -872,6 +877,10 @@ def inject_payload(
         if not meets_token_threshold(info.token_estimate, minimum, threshold_slack(config, "openai")):
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
         mutated.setdefault("prompt_cache_key", info.cache_key_fingerprint[:64])
+        if config.get("openai_stream_include_usage", True) and mutated.get("stream") is True:
+            stream_options = mutated.setdefault("stream_options", {})
+            if isinstance(stream_options, dict):
+                stream_options.setdefault("include_usage", True)
         retention = config.get("openai_prompt_cache_retention", {})
         if openai_retention_allowed(info, config):
             mutated.setdefault("prompt_cache_retention", retention.get("value", "24h"))
@@ -1010,7 +1019,12 @@ def extract_usage(provider: str, usage: Any) -> dict[str, int]:
         return {"cached_tokens": int(data.get("input_cached", 0) or 0)}
     if provider == "openai":
         prompt_details = _to_mapping(data.get("prompt_tokens_details"))
-        return {"cached_tokens": int(prompt_details.get("cached_tokens", 0) or 0)}
+        cached = (
+            prompt_details.get("cached_tokens", 0)
+            or prompt_details.get("cached_creation_tokens", 0)
+            or data.get("cached_tokens", 0)
+        )
+        return {"cached_tokens": int(cached or 0)}
     if provider == "anthropic":
         return {
             "cache_read_tokens": int(data.get("cache_read_input_tokens", 0) or 0),
@@ -1026,10 +1040,27 @@ def _to_mapping(value: Any) -> dict[str, Any]:
         return {}
     if isinstance(value, dict):
         return value
+    if hasattr(value, "model_dump"):
+        try:
+            dumped = value.model_dump()
+            if isinstance(dumped, dict):
+                return dumped
+        except Exception:
+            pass
+    if hasattr(value, "dict"):
+        try:
+            dumped = value.dict()
+            if isinstance(dumped, dict):
+                return dumped
+        except Exception:
+            pass
     result = {}
     for name in (
+        "usage",
+        "raw_usage",
         "prompt_tokens_details",
         "cached_tokens",
+        "cached_creation_tokens",
         "cache_read_input_tokens",
         "cache_creation_input_tokens",
         "cached_content_token_count",
