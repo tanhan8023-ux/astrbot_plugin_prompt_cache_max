@@ -44,28 +44,26 @@
     "aiwork.fans"
   ],
   "aiwork_session_cache_enabled": true,
-  "aiwork_session_id_field": "session_id",
-  "aiwork_session_id_location": "extra_body"
+  "aiwork_session_id_field": "session_id"
 }
 ```
 
-0.6.4 起，aiwork.fans 会在开启 `cache_injection_enabled` 后把稳定的 `session_id` 写入 `extra_body`。
-OpenAI SDK 对 `session_id` 这类非标准字段通常需要通过 `extra_body` 才会真正透传给中转站；只写顶层字段可能在 AstrBot/OpenAI SDK 组装请求时被忽略。
+0.6.5 起，aiwork.fans 会在开启 `cache_injection_enabled` 后把稳定的 `session_id` 写入请求顶层。
+不要把 `session_id` 写进 `extra_body`：AstrBot 的 OpenAI 调用链内部已经会传 `extra_body`，插件再往 payload 里塞会触发 OpenAI SDK 参数重复。
 这个 `session_id` 由提供商、模型、接口域名和缓存键指纹生成，不包含用户原文、prompt 原文或聊天内容。
 同一人设/同一模型/同一 aiwork 接口会保持稳定；换模型或换缓存键会变化。
-插件不会为了 aiwork session cache 强制写入 `stream`，也不会在没有 payload 目标时额外制造 kwargs 级别的 `extra_body`，避免 OpenAI SDK 参数重复。
+插件不会为了 aiwork session cache 强制写入 `stream` 或 `extra_body`。
 
 如果 `/pcache inspect` 里看到：
 
 ```text
 Session 缓存：已启用
 Session 字段：session_id
-缓存命中依据：aiwork session_id via extra_body
+缓存命中依据：aiwork session_id via top_level
 ```
 
 就说明插件已经把站子需要的 session cache 标识发出去了。
 如果站子实际字段名不是 `session_id`，把 `aiwork_session_id_field` 改成站子要求的名字。
-如果上游再次报 `extra_body` 参数重复，把 `aiwork_session_id_location` 临时改成 `top_level`。
 
 旧版只需要 prompt cache key 的最小配置仍可用：
 

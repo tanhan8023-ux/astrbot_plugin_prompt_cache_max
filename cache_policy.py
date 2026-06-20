@@ -54,7 +54,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "openai_stream_include_usage": True,
     "aiwork_session_cache_enabled": True,
     "aiwork_session_id_field": "session_id",
-    "aiwork_session_id_location": "extra_body",
     "min_prefix_tokens": {
         "openai": 1024,
         "gemini_flash": 1024,
@@ -432,9 +431,7 @@ def aiwork_session_field(config: dict[str, Any]) -> str:
 
 
 def aiwork_session_location(config: dict[str, Any]) -> str:
-    value = str(config.get("aiwork_session_id_location") or "extra_body").strip().lower()
-    allowed = {"extra_body", "top_level", "both"}
-    return value if value in allowed else "extra_body"
+    return "top_level"
 
 
 def aiwork_session_id(info: PrefixInfo, config: dict[str, Any]) -> str:
@@ -453,14 +450,7 @@ def aiwork_session_cache_allowed(info: PrefixInfo, config: dict[str, Any]) -> bo
 
 def inject_aiwork_session_id(payload: dict[str, Any], field: str, value: str, config: dict[str, Any]) -> str:
     location = aiwork_session_location(config)
-    if location in ("top_level", "both"):
-        payload[field] = value
-    if location in ("extra_body", "both"):
-        extra_body = payload.get("extra_body")
-        if not isinstance(extra_body, dict):
-            extra_body = {}
-            payload["extra_body"] = extra_body
-        extra_body[field] = value
+    payload[field] = value
     return location
 
 

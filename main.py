@@ -20,7 +20,7 @@ from .cache_policy import (
     with_stable_style_rules,
 )
 
-PLUGIN_VERSION = "0.6.4"
+PLUGIN_VERSION = "0.6.5"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
