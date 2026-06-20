@@ -18,7 +18,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.4.9"
+PLUGIN_VERSION = "0.5.0"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -68,7 +68,7 @@ def _log_warn(message: str) -> None:
 @register(
     "astrbot_plugin_prompt_cache_max",
     "Codex",
-    "Maximize provider-side prompt cache reuse for OpenAI, Claude, and Gemini.",
+    "帮助 OpenAI 兼容接口、Claude 和 Gemini 更容易复用服务端提示词缓存。",
     PLUGIN_VERSION,
 )
 class PromptCacheMaxPlugin(Star):
@@ -140,9 +140,9 @@ class PromptCacheMaxPlugin(Star):
             return
         if command == "clear":
             self.state.clear()
-            yield event.plain_result("Prompt cache lightweight state cleared.")
+            yield event.plain_result("已清除本地轻量缓存状态和统计，不会删除聊天历史。")
             return
-        yield event.plain_result("Usage: /pcache stats | inspect | clear")
+        yield event.plain_result("用法：/pcache stats | inspect | clear")
 
     async def terminate(self):
         for obj, name, original in reversed(self._wrapped):
@@ -155,8 +155,8 @@ class PromptCacheMaxPlugin(Star):
 
     def _format_stats(self) -> str:
         if not self.state.stats:
-            return "No prompt cache stats recorded yet."
-        lines = ["Prompt cache stats:"]
+            return "还没有记录到缓存统计。"
+        lines = ["缓存统计："]
         for key, stat in sorted(self.state.stats.items()):
             requests = stat.get("requests", 0)
             cached = stat.get("cached_tokens", 0)
@@ -165,38 +165,66 @@ class PromptCacheMaxPlugin(Star):
             exact_hits = stat.get("exact_cache_hits", 0)
             exact_writes = stat.get("exact_cache_writes", 0)
             lines.append(
-                f"- {key}: requests={requests}, cached={cached}, "
-                f"read={read}, created={created}, exact_hits={exact_hits}, exact_writes={exact_writes}"
+                f"- {key}: 请求数={requests}, 已缓存 token={cached}, "
+                f"读取缓存 token={read}, 写入缓存 token={created}, 精确命中={exact_hits}, 精确写入={exact_writes}"
             )
         return "\n".join(lines)
 
     def _format_inspect(self) -> str:
         info = self.state.last_inspect
         if not info:
-            return "No prompt cache request has been observed yet."
+            return "还没有观察到缓存请求。若需要检查，请先开启 observe_requests_enabled 并发起一次对话。"
         return (
-            "Last prompt cache request:\n"
-            f"- plugin_version: {PLUGIN_VERSION}\n"
-            f"- provider/model: {info.get('provider')}/{info.get('model')}\n"
-            f"- base_url: {info.get('base_url')}\n"
-            f"- base_url_host: {info.get('base_url_host')}\n"
-            f"- fingerprint: {info.get('fingerprint')}\n"
-            f"- cache_key: {info.get('cache_key')}\n"
-            f"- stable_style_rules: {self._latest_style_rules}\n"
-            f"- provider_wrapping_enabled: {self._provider_wrapping_enabled()}\n"
-            f"- cache_injection_enabled: {self._cache_injection_enabled()}\n"
-            f"- token_estimate: {info.get('token_estimate')}\n"
-            f"- openai_threshold: {self._openai_threshold()}\n"
-            f"- anthropic_threshold: {self._anthropic_threshold()}\n"
-            f"- allowlisted: {info.get('allowlisted')}\n"
-            f"- allowlist_has_55ai: {self._allowlist_has_55ai()}\n"
-            f"- injected: {info.get('injected')}\n"
-            f"- write_target: {self._latest_write_target}\n"
-            f"- cache_breakpoints: {getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
-            f"- response_cache: {self._latest_response_cache}\n"
-            f"- retention_enabled: {self._retention_enabled()}\n"
-            f"- note: {info.get('note')}"
+            "最近一次缓存请求检查：\n"
+            f"- 插件版本：{PLUGIN_VERSION}\n"
+            f"- 提供商/模型：{info.get('provider')}/{info.get('model')}\n"
+            f"- 接口地址：{info.get('base_url')}\n"
+            f"- 接口域名：{info.get('base_url_host')}\n"
+            f"- 前缀指纹：{info.get('fingerprint')}\n"
+            f"- 缓存键：{info.get('cache_key')}\n"
+            f"- 稳定风格规则：{self._format_note(self._latest_style_rules)}\n"
+            f"- 是否包装提供商方法：{self._format_bool(self._provider_wrapping_enabled())}\n"
+            f"- 是否注入缓存字段：{self._format_bool(self._cache_injection_enabled())}\n"
+            f"- 前缀长度估算：{info.get('token_estimate')}\n"
+            f"- OpenAI兼容门槛：{self._openai_threshold()}\n"
+            f"- Claude门槛：{self._anthropic_threshold()}\n"
+            f"- 接口是否在白名单：{self._format_bool(info.get('allowlisted'))}\n"
+            f"- 白名单是否包含55系接口：{self._format_bool(self._allowlist_has_55ai())}\n"
+            f"- 本次是否已注入：{self._format_bool(info.get('injected'))}\n"
+            f"- 写入位置：{self._format_note(self._latest_write_target)}\n"
+            f"- 缓存标记点数量：{getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
+            f"- 精确回复缓存：{self._format_note(self._latest_response_cache)}\n"
+            f"- 是否发送保留时间字段：{self._format_bool(self._retention_enabled())}\n"
+            f"- 备注：{self._format_note(info.get('note'))}"
         )
+
+    def _format_bool(self, value: Any) -> str:
+        return "是" if bool(value) else "否"
+
+    def _format_note(self, value: Any) -> str:
+        mapping = {
+            "none": "无",
+            "passthrough": "安全直通",
+            "already_present_or_disabled": "已存在或未启用",
+            "prepended": "已插入",
+            "payload_prepended": "已插入到请求内容",
+            "failed": "失败",
+            "request observed": "已观察到请求",
+            "cache injection disabled": "缓存注入未开启",
+            "provider disabled": "该提供商未启用",
+            "base_url not allowlisted": "接口地址不在白名单",
+            "prefix below threshold": "稳定前缀长度低于门槛",
+            "prompt_cache_key": "已发送缓存键 prompt_cache_key",
+            "prompt_cache_key:near_threshold": "接近门槛，已发送缓存键 prompt_cache_key",
+            "cache_control": "已写入 Claude 缓存标记",
+            "no cacheable block": "没有可标记的缓存块",
+            "implicit cache only": "仅使用隐式缓存",
+            "cachedContent": "已引用 Gemini 显式缓存",
+            "cache unavailable": "缓存不可用",
+            "unsupported provider": "暂不支持该提供商",
+        }
+        text = str(value or "")
+        return mapping.get(text, text)
 
     def _allowlist_has_55ai(self) -> bool:
         values = [*BUILTIN_ALLOWLIST_BASE_URLS, *list(self.config.get("allowlist_base_urls", []))]

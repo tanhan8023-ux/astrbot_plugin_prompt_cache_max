@@ -1,31 +1,31 @@
 {
   "enabled": {
-    "description": "Enable prompt cache maximization.",
+    "description": "总开关。关闭后插件不参与缓存观察或注入。",
     "type": "bool",
     "default": true
   },
   "observe_requests_enabled": {
-    "description": "Observe LLM requests and write lightweight inspect state. Disabled by default for emergency passthrough safety.",
+    "description": "观察大模型请求并记录轻量检查信息。默认关闭，避免影响正常回复。",
     "type": "bool",
     "default": false
   },
   "provider_wrapping_enabled": {
-    "description": "Wrap provider methods to mutate outgoing payloads. Disabled by default because some OpenAI-compatible middlemen may hang on extra fields.",
+    "description": "包装模型提供商方法，用于读取或修改实际发出的请求。默认关闭，避免中转站因额外字段卡住。",
     "type": "bool",
     "default": false
   },
   "cache_injection_enabled": {
-    "description": "Inject provider-specific prompt cache fields. Requires provider_wrapping_enabled. Disabled by default for safety.",
+    "description": "注入缓存字段（如 prompt_cache_key）。需要同时开启 provider_wrapping_enabled。默认关闭，更安全。",
     "type": "bool",
     "default": false
   },
   "providers": {
-    "description": "Provider families to enable.",
+    "description": "允许启用缓存能力的模型提供商类型。",
     "type": "list",
     "default": ["openai", "anthropic", "gemini"]
   },
   "allowlist_base_urls": {
-    "description": "Only these base URL prefixes receive provider-specific cache fields.",
+    "description": "接口地址白名单。只有这些地址会被允许注入专用缓存字段。",
     "type": "list",
     "default": [
       "https://api.openai.com",
@@ -47,16 +47,16 @@
     ]
   },
   "cache_ttl": {
-    "description": "Provider cache TTL values.",
+    "description": "不同提供商的缓存保留时间配置。",
     "type": "object",
     "items": {
       "anthropic": {
-        "description": "Claude cache TTL.",
+        "description": "Claude 临时缓存保留时间。",
         "type": "string",
         "default": "5m"
       },
       "gemini": {
-        "description": "Gemini explicit cache TTL.",
+        "description": "Gemini 显式缓存保留时间。",
         "type": "string",
         "default": "3600s"
       }
@@ -67,7 +67,7 @@
     }
   },
   "openai_compatible_hosts": {
-    "description": "Hosts that should use OpenAI-compatible prompt cache fields even when model names contain claude/gemini.",
+    "description": "按 OpenAI 兼容接口处理的域名。即使模型名包含 claude/gemini，也会走 OpenAI 兼容缓存字段。",
     "type": "list",
     "default": [
       "aiwork.fans",
@@ -79,16 +79,16 @@
     ]
   },
   "openai_prompt_cache_retention": {
-    "description": "Optional OpenAI prompt cache retention field. Keep disabled for unknown compatible APIs.",
+    "description": "可选的 OpenAI 缓存保留字段。未知中转站建议保持关闭。",
     "type": "object",
     "items": {
       "enabled": {
-        "description": "Send prompt_cache_retention.",
+        "description": "是否发送 prompt_cache_retention 字段。",
         "type": "bool",
         "default": false
       },
       "value": {
-        "description": "Retention value.",
+        "description": "缓存保留时间取值。",
         "type": "string",
         "default": "24h"
       }
@@ -99,26 +99,26 @@
     }
   },
   "min_prefix_tokens": {
-    "description": "Minimum stable prefix token estimates before explicit cache hints are used.",
+    "description": "稳定前缀达到多少估算 token 后，才尝试发送缓存提示。",
     "type": "object",
     "items": {
       "openai": {
-        "description": "Minimum prefix tokens before sending OpenAI prompt_cache_key.",
+        "description": "发送 OpenAI 兼容缓存键（prompt_cache_key）的最低前缀长度。",
         "type": "int",
         "default": 512
       },
       "gemini_flash": {
-        "description": "Minimum prefix tokens before trying Gemini Flash explicit cache.",
+        "description": "尝试 Gemini Flash 显式缓存的最低前缀长度。",
         "type": "int",
         "default": 1024
       },
       "gemini_pro": {
-        "description": "Minimum prefix tokens before trying Gemini Pro explicit cache.",
+        "description": "尝试 Gemini Pro 显式缓存的最低前缀长度。",
         "type": "int",
         "default": 4096
       },
       "anthropic": {
-        "description": "Minimum prefix tokens before adding Claude cache_control.",
+        "description": "添加 Claude 缓存标记（cache_control）的最低前缀长度。",
         "type": "int",
         "default": 512
       }
@@ -131,21 +131,21 @@
     }
   },
   "threshold_slack_tokens": {
-    "description": "Safety margin for rough token estimates. Cache hints are still sent when the estimate is slightly below the configured threshold.",
+    "description": "估算 token 的安全余量。当前缀只差一点达到门槛时，也允许发送缓存提示。",
     "type": "object",
     "items": {
       "openai": {
-        "description": "OpenAI-compatible threshold slack.",
+        "description": "OpenAI 兼容接口的门槛余量。",
         "type": "int",
         "default": 16
       },
       "anthropic": {
-        "description": "Claude threshold slack.",
+        "description": "Claude 的门槛余量。",
         "type": "int",
         "default": 16
       },
       "gemini": {
-        "description": "Gemini threshold slack.",
+        "description": "Gemini 的门槛余量。",
         "type": "int",
         "default": 128
       }
@@ -157,36 +157,36 @@
     }
   },
   "stats_enabled": {
-    "description": "Persist lightweight aggregate cache statistics.",
+    "description": "保存轻量缓存统计信息。",
     "type": "bool",
     "default": true
   },
   "max_claude_cache_blocks": {
-    "description": "Maximum number of Claude cache_control breakpoints to write.",
+    "description": "最多给 Claude 请求写入多少个缓存标记点。",
     "type": "int",
     "default": 4
   },
   "stable_style_rules": {
-    "description": "Prepend a stable warm, natural, lightly teasing style block to the system prompt. This improves stable prefix length without caching repeated responses.",
+    "description": "在系统提示词前加入稳定风格规则。可增加稳定前缀长度，但默认关闭，避免影响人设。",
     "type": "object",
     "items": {
       "enabled": {
-        "description": "Enable stable style rules.",
+        "description": "是否启用稳定风格规则。",
         "type": "bool",
         "default": false
       },
       "prepend_to_system_prompt": {
-        "description": "Insert the style block at the front of system_prompt.",
+        "description": "是否把风格规则插到 system_prompt 最前面。",
         "type": "bool",
         "default": true
       },
       "mode": {
-        "description": "Built-in style mode.",
+        "description": "内置风格模式。",
         "type": "string",
         "default": "warm_soft_sarcasm"
       },
       "text": {
-        "description": "Optional custom stable style text. Leave empty to use the built-in warm soft-sarcasm rules.",
+        "description": "自定义稳定风格文本。留空时使用内置温柔轻微毒舌风格。",
         "type": "string",
         "default": ""
       }
@@ -199,31 +199,31 @@
     }
   },
   "exact_response_cache": {
-    "description": "Exact response cache. Hits skip the model request completely.",
+    "description": "精确回复缓存。命中后会跳过模型请求，可能导致重复回复，默认关闭。",
     "type": "object",
     "items": {
       "enabled": {
-        "description": "Enable exact response cache.",
+        "description": "是否启用精确回复缓存。",
         "type": "bool",
         "default": false
       },
       "backend": {
-        "description": "Cache backend: memory or redis.",
+        "description": "缓存后端，可选 memory 或 redis。",
         "type": "string",
         "default": "memory"
       },
       "redis_url": {
-        "description": "Redis URL when backend is redis.",
+        "description": "当后端为 redis 时使用的 Redis 地址。",
         "type": "string",
         "default": "redis://localhost:6379/0"
       },
       "ttl_seconds": {
-        "description": "Exact cache TTL.",
+        "description": "精确回复缓存保留秒数。",
         "type": "int",
         "default": 600
       },
       "max_prompt_chars": {
-        "description": "Do not exact-cache prompts larger than this serialized size.",
+        "description": "超过这个序列化长度的 prompt 不进入精确回复缓存。",
         "type": "int",
         "default": 12000
       }
