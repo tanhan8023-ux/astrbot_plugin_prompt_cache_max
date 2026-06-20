@@ -48,10 +48,19 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
     assert "prompt_cache_key" not in denied.payload
 
 
-def test_openai_stream_payload_requests_usage(tmp_path: Path):
+def test_openai_does_not_force_stream_by_default(tmp_path: Path):
     config = merge_config({"cache_injection_enabled": True})
     state = make_state(tmp_path)
     result = inject_payload({}, make_info("openai", True), config, state)
+    assert result.injected is True
+    assert "stream" not in result.payload
+    assert "stream_options" not in result.payload
+
+
+def test_openai_stream_payload_requests_usage(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True})
+    state = make_state(tmp_path)
+    result = inject_payload({"stream": True}, make_info("openai", True), config, state)
     assert result.injected is True
     assert result.payload["stream"] is True
     assert result.payload["stream_options"]["include_usage"] is True

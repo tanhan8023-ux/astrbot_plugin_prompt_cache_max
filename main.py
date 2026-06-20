@@ -21,7 +21,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.6.0"
+PLUGIN_VERSION = "0.6.1"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -380,7 +380,7 @@ class PromptCacheMaxPlugin(Star):
         return bool(self.config.get("enabled", True) and self.config.get("cache_injection_enabled", False))
 
     def _openai_force_stream_enabled(self) -> bool:
-        return bool(self.config.get("openai_force_stream", True))
+        return bool(self.config.get("openai_force_stream", False))
 
     def _force_disable_exact_response_cache(self) -> None:
         exact = self.config.setdefault("exact_response_cache", {})

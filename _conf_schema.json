@@ -111,9 +111,9 @@
     "default": true
   },
   "openai_force_stream": {
-    "description": "强制 OpenAI 兼容接口使用流式请求（stream=true）。用于让上游更容易返回流式 usage/cached_tokens。",
+    "description": "实验开关：尝试强制 OpenAI 兼容接口使用流式请求。默认关闭，因为部分 AstrBot/OpenAI SDK 路径会造成 stream 参数重复。",
     "type": "bool",
-    "default": true
+    "default": false
   },
   "openai_cache_key_extra_body": {
     "description": "实验开关：尝试把 prompt_cache_key 写入 extra_body。当前默认关闭，因为部分 AstrBot/OpenAI SDK 路径会造成 extra_body 参数重复。",

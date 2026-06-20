@@ -55,5 +55,5 @@
 把动态时间、状态栏、最近聊天、图片/GIF 尽量挤到缓存窗口后面。
 想提高命中率，重点看“真实请求前缀是否一致”和“首个动态内容位置估算”。
 真实请求前缀要连续一致，首个动态内容最好出现在 1024 token 之后；更稳妥是 1536 token 之后，推荐 3072 token 之后。
-当前版本默认对 OpenAI 兼容接口强制 `stream=true`，并发送 `stream_options.include_usage=true`，
-用于让上游更容易返回 usage 和 `cached_tokens`。
+当前版本不会通过 payload 强制 `stream=true`，避免 AstrBot/OpenAI SDK 出现重复 stream 参数。
+如果请求本身已经是流式，插件会补 `stream_options.include_usage=true`，用于让上游更容易返回 usage 和 `cached_tokens`。
