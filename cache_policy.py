@@ -57,6 +57,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "aiwork_session_cache_enabled": True,
     "aiwork_session_id_mode": "cache_key",
     "aiwork_session_id_field": "session_id",
+    "aiwork_session_id_location": "extra_body",
     "min_prefix_tokens": {
         "openai": 1024,
         "gemini_flash": 1024,
@@ -440,6 +441,12 @@ def aiwork_session_field(config: dict[str, Any]) -> str:
     return value
 
 
+def aiwork_session_location(config: dict[str, Any]) -> str:
+    value = str(config.get("aiwork_session_id_location") or "extra_body").strip().lower()
+    allowed = {"extra_body", "top_level", "both"}
+    return value if value in allowed else "extra_body"
+
+
 def aiwork_session_id(info: PrefixInfo, config: dict[str, Any]) -> str:
     mode = str(config.get("aiwork_session_id_mode") or "cache_key").strip().lower()
     if mode == "fingerprint":
@@ -461,6 +468,19 @@ def aiwork_session_id(info: PrefixInfo, config: dict[str, Any]) -> str:
 
 def aiwork_session_cache_allowed(info: PrefixInfo, config: dict[str, Any]) -> bool:
     return bool(config.get("aiwork_session_cache_enabled", True) and is_aiwork_host(info.base_url_host))
+
+
+def inject_aiwork_session_id(payload: dict[str, Any], field: str, value: str, config: dict[str, Any]) -> str:
+    location = aiwork_session_location(config)
+    if location in ("top_level", "both"):
+        payload[field] = value
+    if location in ("extra_body", "both"):
+        extra_body = payload.get("extra_body")
+        if not isinstance(extra_body, dict):
+            extra_body = {}
+            payload["extra_body"] = extra_body
+        extra_body[field] = value
+    return location
 
 
 def parse_ttl_seconds(value: Any, default: int) -> int:
@@ -928,10 +948,11 @@ def inject_payload(
         session_cache_enabled = aiwork_session_cache_allowed(info, config)
         session_field = ""
         session_id_value = ""
+        session_location = ""
         if session_cache_enabled:
             session_field = aiwork_session_field(config)
             session_id_value = aiwork_session_id(info, config)
-            mutated[session_field] = session_id_value
+            session_location = inject_aiwork_session_id(mutated, session_field, session_id_value, config)
         if not meets_token_threshold(info.token_estimate, minimum, threshold_slack(config, "openai")):
             if session_cache_enabled:
                 return InjectionResult(
@@ -944,7 +965,7 @@ def inject_payload(
                     session_cache_enabled=True,
                     session_id_prefix=session_id_value[:12],
                     session_id_field=session_field,
-                    session_cache_basis="aiwork session_id",
+                    session_cache_basis=f"aiwork session_id via {session_location}",
                 )
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
         cache_key = info.cache_key_fingerprint[:64]
@@ -970,7 +991,7 @@ def inject_payload(
             session_cache_enabled=session_cache_enabled,
             session_id_prefix=session_id_value[:12],
             session_id_field=session_field,
-            session_cache_basis="aiwork session_id" if session_cache_enabled else "",
+            session_cache_basis=f"aiwork session_id via {session_location}" if session_cache_enabled else "",
         )
 
     if info.provider == "anthropic":
