@@ -51,9 +51,19 @@ def test_openai_payload_only_allowlisted(tmp_path: Path):
 def test_openai_stream_payload_requests_usage(tmp_path: Path):
     config = merge_config({"cache_injection_enabled": True})
     state = make_state(tmp_path)
-    result = inject_payload({"stream": True}, make_info("openai", True), config, state)
+    result = inject_payload({}, make_info("openai", True), config, state)
     assert result.injected is True
+    assert result.payload["stream"] is True
     assert result.payload["stream_options"]["include_usage"] is True
+
+
+def test_openai_force_stream_can_be_disabled(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True, "openai_force_stream": False})
+    state = make_state(tmp_path)
+    result = inject_payload({}, make_info("openai", True), config, state)
+    assert result.injected is True
+    assert "stream" not in result.payload
+    assert "stream_options" not in result.payload
 
 
 def test_openai_cache_key_extra_body_can_be_disabled(tmp_path: Path):
