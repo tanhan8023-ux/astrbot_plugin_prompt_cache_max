@@ -1,6 +1,6 @@
 {
   "enabled": {
-    "description": "总开关。关闭后插件不参与缓存观察或注入。",
+    "description": "总开关。关闭后插件不观察请求，也不注入任何缓存字段。",
     "type": "bool",
     "default": true
   },
@@ -10,12 +10,12 @@
     "default": false
   },
   "provider_wrapping_enabled": {
-    "description": "包装模型提供商方法，用于读取或修改实际发出的请求。默认关闭，避免中转站因额外字段卡住。",
+    "description": "包装模型提供商方法，用于读取或修改实际发出的请求。默认关闭，更稳。",
     "type": "bool",
     "default": false
   },
   "cache_injection_enabled": {
-    "description": "注入缓存字段（如 prompt_cache_key）。需要同时开启 provider_wrapping_enabled。默认关闭，更安全。",
+    "description": "注入缓存字段，例如 prompt_cache_key 和 aiwork session_id。需要同时开启 provider_wrapping_enabled。",
     "type": "bool",
     "default": false
   },
@@ -99,33 +99,46 @@
     }
   },
   "openai_prompt_cache_retention_blocked_hosts": {
-    "description": "禁止发送 prompt_cache_retention 的接口域名。aiwork.fans 默认禁发，只发送 prompt_cache_key。",
+    "description": "禁止发送 prompt_cache_retention 的接口域名。aiwork.fans 默认禁发。",
     "type": "list",
-    "default": [
-      "aiwork.fans"
-    ]
+    "default": ["aiwork.fans"]
   },
   "openai_stream_include_usage": {
-    "description": "OpenAI 兼容接口流式请求时要求上游返回 usage。开启后更容易看到 cached_tokens。",
+    "description": "当请求本身已经是流式时，补充 stream_options.include_usage，方便上游返回 usage。",
     "type": "bool",
     "default": true
   },
   "openai_force_stream": {
-    "description": "实验开关：尝试强制 OpenAI 兼容接口使用流式请求。默认关闭，因为部分 AstrBot/OpenAI SDK 路径会造成 stream 参数重复。",
+    "description": "实验开关：强制 OpenAI 兼容接口使用流式请求。默认关闭，避免 stream 参数重复。",
     "type": "bool",
     "default": false
   },
   "openai_cache_key_extra_body": {
-    "description": "实验开关：尝试把 prompt_cache_key 写入 extra_body。当前默认关闭，因为部分 AstrBot/OpenAI SDK 路径会造成 extra_body 参数重复。",
+    "description": "实验开关：尝试把 prompt_cache_key 写入 extra_body。默认关闭，避免 extra_body 参数重复。",
     "type": "bool",
     "default": false
+  },
+  "aiwork_session_cache_enabled": {
+    "description": "aiwork.fans 专用 Session 缓存。开启缓存注入时，会给 aiwork 请求写入稳定的 session_id。",
+    "type": "bool",
+    "default": true
+  },
+  "aiwork_session_id_mode": {
+    "description": "aiwork session_id 的生成方式。默认 cache_key，同一人设/同一模型/同一接口保持稳定，不包含用户原文或 prompt 原文。",
+    "type": "string",
+    "default": "cache_key"
+  },
+  "aiwork_session_id_field": {
+    "description": "写入 aiwork 请求的 Session 字段名。默认 session_id；如果站子要求别的字段名，就改这里。",
+    "type": "string",
+    "default": "session_id"
   },
   "min_prefix_tokens": {
     "description": "稳定前缀达到多少估算 token 后，才尝试发送缓存提示。",
     "type": "object",
     "items": {
       "openai": {
-        "description": "发送 OpenAI 兼容缓存键（prompt_cache_key）的最低前缀长度。",
+        "description": "发送 OpenAI 兼容缓存键 prompt_cache_key 的最低前缀长度。",
         "type": "int",
         "default": 1024
       },
@@ -140,7 +153,7 @@
         "default": 4096
       },
       "anthropic": {
-        "description": "添加 Claude 缓存标记（cache_control）的最低前缀长度。",
+        "description": "添加 Claude 缓存标记 cache_control 的最低前缀长度。",
         "type": "int",
         "default": 512
       }
@@ -213,7 +226,7 @@
         "default": ""
       },
       "cache_anchor_enabled": {
-        "description": "是否追加稳定缓存锚点。开启后会增加固定前缀长度，帮助真实命中 cached_tokens，但不会要求回复固定。",
+        "description": "是否追加稳定缓存锚点。开启后会增加固定前缀长度，帮助服务端缓存命中。",
         "type": "bool",
         "default": true
       },
@@ -223,7 +236,7 @@
         "default": ""
       },
       "cache_anchor_target_tokens": {
-        "description": "稳定缓存锚点目标长度。建议至少 3072，让动态内容尽量排到 OpenAI 兼容缓存门槛后面。",
+        "description": "稳定缓存锚点目标长度。建议至少 3072，让动态内容尽量排到缓存门槛后面。",
         "type": "int",
         "default": 3072
       },
@@ -245,7 +258,7 @@
     }
   },
   "exact_response_cache": {
-    "description": "精确回复缓存。当前版本为保持自然回复会被插件强制关闭；真正省钱请看服务端 cached_tokens。",
+    "description": "精确回复缓存。当前版本会强制关闭；真正省钱请看服务端 cached_tokens 或 aiwork session cache。",
     "type": "object",
     "items": {
       "enabled": {

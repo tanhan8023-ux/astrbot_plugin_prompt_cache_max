@@ -100,7 +100,7 @@ def test_aiwork_is_allowlisted_and_openai_compatible():
     assert normalize_provider_with_config("anthropic", "claude-opus-4-6", "https://aiwork.fans/v1", config) == "openai"
 
 
-def test_aiwork_openai_payload_only_sends_cache_key(tmp_path: Path):
+def test_aiwork_openai_payload_sends_cache_key_and_session_id(tmp_path: Path):
     config = merge_config({"cache_injection_enabled": True})
     state = make_state(tmp_path)
     info = PrefixInfo(
@@ -116,8 +116,101 @@ def test_aiwork_openai_payload_only_sends_cache_key(tmp_path: Path):
     result = inject_payload({}, info, config, state)
     assert result.injected is True
     assert result.payload["prompt_cache_key"] == "b" * 64
+    assert result.payload["session_id"]
+    assert result.session_cache_enabled is True
+    assert result.session_id_prefix == result.payload["session_id"][:12]
     assert "extra_body" not in result.payload
+    assert "stream" not in result.payload
     assert "prompt_cache_retention" not in result.payload
+
+
+def test_aiwork_injects_stable_session_id(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True})
+    state = make_state(tmp_path)
+    info = PrefixInfo(
+        provider="openai",
+        model="gemini-3-flash-preview",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="b" * 64,
+        token_estimate=5000,
+        allowlisted=True,
+    )
+    first = inject_payload({}, info, config, state)
+    second = inject_payload({}, info, config, state)
+    assert first.payload["session_id"] == second.payload["session_id"]
+    assert first.session_id_field == "session_id"
+    assert first.session_cache_basis == "aiwork session_id"
+    assert "extra_body" not in first.payload
+    assert "stream" not in first.payload
+
+
+def test_aiwork_session_id_changes_by_model_or_cache_key(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True})
+    state = make_state(tmp_path)
+    base = PrefixInfo(
+        provider="openai",
+        model="gemini-3-flash-preview",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="b" * 64,
+        token_estimate=5000,
+        allowlisted=True,
+    )
+    different_model = PrefixInfo(
+        provider="openai",
+        model="claude-opus-4-6",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="b" * 64,
+        token_estimate=5000,
+        allowlisted=True,
+    )
+    different_key = PrefixInfo(
+        provider="openai",
+        model="gemini-3-flash-preview",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="c" * 64,
+        token_estimate=5000,
+        allowlisted=True,
+    )
+    first = inject_payload({}, base, config, state)
+    assert first.payload["session_id"] != inject_payload({}, different_model, config, state).payload["session_id"]
+    assert first.payload["session_id"] != inject_payload({}, different_key, config, state).payload["session_id"]
+
+
+def test_non_aiwork_does_not_inject_session_id(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True})
+    state = make_state(tmp_path)
+    result = inject_payload({}, make_info("openai", True), config, state)
+    assert result.injected is True
+    assert "session_id" not in result.payload
+    assert result.session_cache_enabled is False
+
+
+def test_aiwork_session_id_still_injects_below_openai_threshold(tmp_path: Path):
+    config = merge_config({"cache_injection_enabled": True, "min_prefix_tokens": {"openai": 1024}})
+    state = make_state(tmp_path)
+    info = PrefixInfo(
+        provider="openai",
+        model="gemini-3-flash-preview",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="b" * 64,
+        token_estimate=100,
+        allowlisted=True,
+    )
+    result = inject_payload({}, info, config, state)
+    assert result.injected is True
+    assert result.note == "aiwork_session_id"
+    assert "session_id" in result.payload
+    assert "prompt_cache_key" not in result.payload
 
 
 def test_aiwork_never_sends_retention_even_when_enabled(tmp_path: Path):

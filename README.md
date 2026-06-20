@@ -42,6 +42,41 @@
   },
   "openai_prompt_cache_retention_blocked_hosts": [
     "aiwork.fans"
+  ],
+  "aiwork_session_cache_enabled": true,
+  "aiwork_session_id_mode": "cache_key",
+  "aiwork_session_id_field": "session_id"
+}
+```
+
+0.6.2 起，aiwork.fans 会在开启 `cache_injection_enabled` 后额外写入顶层 `session_id`。
+这个 `session_id` 由提供商、模型、接口域名和缓存键指纹生成，不包含用户原文、prompt 原文或聊天内容。
+同一人设/同一模型/同一 aiwork 接口会保持稳定；换模型或换缓存键会变化。
+插件不会为了 aiwork session cache 强制写入 `stream` 或 `extra_body`，避免 OpenAI SDK 参数重复。
+
+如果 `/pcache inspect` 里看到：
+
+```text
+Session 缓存：已启用
+Session 字段：session_id
+缓存命中依据：aiwork session_id
+```
+
+就说明插件已经把站子需要的 session cache 标识发出去了。
+如果站子实际字段名不是 `session_id`，把 `aiwork_session_id_field` 改成站子要求的名字。
+
+旧版只需要 prompt cache key 的最小配置仍可用：
+
+```json
+{
+  "observe_requests_enabled": true,
+  "provider_wrapping_enabled": true,
+  "cache_injection_enabled": true,
+  "openai_prompt_cache_retention": {
+    "enabled": false
+  },
+  "openai_prompt_cache_retention_blocked_hosts": [
+    "aiwork.fans"
   ]
 }
 ```

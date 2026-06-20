@@ -21,7 +21,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.6.1"
+PLUGIN_VERSION = "0.6.2"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -195,6 +195,10 @@ class PromptCacheMaxPlugin(Star):
             f"- 真实请求前缀指纹：{info.get('actual_prefix_fingerprint') or '无'}\n"
             f"- 真实请求前缀是否一致：{self._format_prefix_same(info.get('actual_prefix_same_as_previous'))}\n"
             f"- 缓存键：{info.get('cache_key')}\n"
+            f"- Session 缓存：{self._format_session_cache(info)}\n"
+            f"- Session ID：{info.get('session_id_prefix') or '无'}\n"
+            f"- Session 字段：{info.get('session_id_field') or '无'}\n"
+            f"- 缓存命中依据：{info.get('session_cache_basis') or '服务端提示词缓存'}\n"
             f"- 稳定风格规则：{self._format_note(self._latest_style_rules)}\n"
             f"- 是否包装提供商方法：{self._format_bool(self._provider_wrapping_enabled())}\n"
             f"- 是否注入缓存字段：{self._format_bool(self._cache_injection_enabled())}\n"
@@ -222,6 +226,13 @@ class PromptCacheMaxPlugin(Star):
     def _format_bool(self, value: Any) -> str:
         return "是" if bool(value) else "否"
 
+    def _format_session_cache(self, info: dict[str, Any]) -> str:
+        if info.get("session_cache_enabled"):
+            return "已启用"
+        if str(info.get("base_url_host") or "").lower() == "aiwork.fans":
+            return "未启用"
+        return "不适用"
+
     def _format_note(self, value: Any) -> str:
         mapping = {
             "none": "无",
@@ -235,6 +246,8 @@ class PromptCacheMaxPlugin(Star):
             "provider disabled": "该提供商未启用",
             "base_url not allowlisted": "接口地址不在白名单",
             "prefix below threshold": "稳定前缀长度低于门槛",
+            "aiwork_session_id": "已发送 aiwork session_id",
+            "prompt_cache_key+aiwork_session_id": "已发送 prompt_cache_key 和 aiwork session_id",
             "prompt_cache_key": "已发送缓存键 prompt_cache_key",
             "prompt_cache_key:near_threshold": "接近门槛，已发送缓存键 prompt_cache_key",
             "cache_control": "已写入 Claude 缓存标记",
@@ -295,6 +308,10 @@ class PromptCacheMaxPlugin(Star):
             return "不会命中：provider_wrapping_enabled 未开启"
         if not self._cache_injection_enabled():
             return "不会命中：cache_injection_enabled 未开启"
+        if info.get("session_cache_enabled") and info.get("session_id_prefix"):
+            if info.get("observed_cached_tokens") and int(info.get("observed_cached_tokens") or 0) > 0:
+                return "已命中：后台返回了 cached_tokens"
+            return "已发送 aiwork session_id：命中看站子 session cache"
         if not self._prefix_meets_threshold(info):
             return "难命中：稳定前缀还不够长"
         if info.get("injected") is not True:
@@ -524,7 +541,16 @@ class PromptCacheMaxPlugin(Star):
             else:
                 result = plugin._observe_only_result(payload, info)
             plugin._latest_result = result
-            plugin.state.remember_inspect(info, result.injected, result.note, risk_report)
+            plugin.state.remember_inspect(
+                info,
+                result.injected,
+                result.note,
+                risk_report,
+                getattr(result, "session_cache_enabled", False),
+                getattr(result, "session_id_prefix", ""),
+                getattr(result, "session_id_field", ""),
+                getattr(result, "session_cache_basis", ""),
+            )
             if result.injected:
                 plugin._latest_write_target = plugin._write_payload(provider_family, args, kwargs, result.payload)
             else:
@@ -622,7 +648,9 @@ class PromptCacheMaxPlugin(Star):
                 arg.clear()
                 arg.extend(payload["contents"])
                 return "args.contents"
-        extra_key = "extra_body" if provider == "openai" else "custom_extra_body"
+        if provider == "openai":
+            return "none:no_payload_target"
+        extra_key = "custom_extra_body"
         extra = kwargs.setdefault(extra_key, {})
         if isinstance(extra, dict):
             for key, value in payload.items():
