@@ -108,25 +108,10 @@
     "type": "bool",
     "default": true
   },
-  "openai_force_stream": {
-    "description": "实验开关：强制 OpenAI 兼容接口使用流式请求。默认关闭，避免 stream 参数重复。",
-    "type": "bool",
-    "default": false
-  },
-  "openai_cache_key_extra_body": {
-    "description": "实验开关：尝试把 prompt_cache_key 写入 extra_body。默认关闭，避免 extra_body 参数重复。",
-    "type": "bool",
-    "default": false
-  },
   "aiwork_session_cache_enabled": {
     "description": "aiwork.fans 专用 Session 缓存。开启缓存注入时，会给 aiwork 请求写入稳定的 session_id。",
     "type": "bool",
     "default": true
-  },
-  "aiwork_session_id_mode": {
-    "description": "aiwork session_id 的生成方式。默认 cache_key，同一人设/同一模型/同一接口保持稳定，不包含用户原文或 prompt 原文。",
-    "type": "string",
-    "default": "cache_key"
   },
   "aiwork_session_id_field": {
     "description": "写入 aiwork 请求的 Session 字段名。默认 session_id；如果站子要求别的字段名，就改这里。",
@@ -260,44 +245,6 @@
       "cache_anchor_text": "",
       "cache_anchor_target_tokens": 3072,
       "cache_anchor_auto_when_injecting": true
-    }
-  },
-  "exact_response_cache": {
-    "description": "精确回复缓存。当前版本会强制关闭；真正省钱请看服务端 cached_tokens 或 aiwork session cache。",
-    "type": "object",
-    "items": {
-      "enabled": {
-        "description": "是否启用精确回复缓存。当前版本会强制关闭，避免 bot 复读旧答案。",
-        "type": "bool",
-        "default": false
-      },
-      "backend": {
-        "description": "缓存后端，可选 memory 或 redis。",
-        "type": "string",
-        "default": "memory"
-      },
-      "redis_url": {
-        "description": "当后端为 redis 时使用的 Redis 地址。",
-        "type": "string",
-        "default": "redis://localhost:6379/0"
-      },
-      "ttl_seconds": {
-        "description": "精确回复缓存保留秒数。",
-        "type": "int",
-        "default": 600
-      },
-      "max_prompt_chars": {
-        "description": "超过这个序列化长度的 prompt 不进入精确回复缓存。",
-        "type": "int",
-        "default": 12000
-      }
-    },
-    "default": {
-      "enabled": false,
-      "backend": "memory",
-      "redis_url": "redis://localhost:6379/0",
-      "ttl_seconds": 600,
-      "max_prompt_chars": 12000
     }
   }
 }

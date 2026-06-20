@@ -52,10 +52,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "aiwork.fans",
     ],
     "openai_stream_include_usage": True,
-    "openai_force_stream": False,
-    "openai_cache_key_extra_body": False,
     "aiwork_session_cache_enabled": True,
-    "aiwork_session_id_mode": "cache_key",
     "aiwork_session_id_field": "session_id",
     "aiwork_session_id_location": "extra_body",
     "min_prefix_tokens": {
@@ -80,13 +77,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cache_anchor_text": "",
         "cache_anchor_target_tokens": 3072,
         "cache_anchor_auto_when_injecting": True,
-    },
-    "exact_response_cache": {
-        "enabled": False,
-        "backend": "memory",
-        "redis_url": "redis://localhost:6379/0",
-        "ttl_seconds": 600,
-        "max_prompt_chars": 12000,
     },
 }
 
@@ -448,21 +438,12 @@ def aiwork_session_location(config: dict[str, Any]) -> str:
 
 
 def aiwork_session_id(info: PrefixInfo, config: dict[str, Any]) -> str:
-    mode = str(config.get("aiwork_session_id_mode") or "cache_key").strip().lower()
-    if mode == "fingerprint":
-        seed = {
-            "provider": info.provider,
-            "model": info.model,
-            "base_url_host": info.base_url_host,
-            "fingerprint": info.fingerprint,
-        }
-    else:
-        seed = {
-            "provider": info.provider,
-            "model": info.model,
-            "base_url_host": info.base_url_host,
-            "cache_key_fingerprint": info.cache_key_fingerprint,
-        }
+    seed = {
+        "provider": info.provider,
+        "model": info.model,
+        "base_url_host": info.base_url_host,
+        "cache_key_fingerprint": info.cache_key_fingerprint,
+    }
     return stable_hash(seed)
 
 
@@ -683,8 +664,6 @@ class LightState:
                 "cached_tokens": 0,
                 "cache_read_tokens": 0,
                 "cache_creation_tokens": 0,
-                "exact_cache_hits": 0,
-                "exact_cache_writes": 0,
             },
         )
         bucket["requests"] += 1
@@ -703,25 +682,6 @@ class LightState:
                 self.last_inspect.setdefault("usage_note", "usage not returned")
         self.save()
         return extracted
-
-    def record_exact_cache(self, provider: str, model: str, event: str) -> None:
-        key = f"{provider}:{model}"
-        bucket = self.stats.setdefault(
-            key,
-            {
-                "requests": 0,
-                "cached_tokens": 0,
-                "cache_read_tokens": 0,
-                "cache_creation_tokens": 0,
-                "exact_cache_hits": 0,
-                "exact_cache_writes": 0,
-            },
-        )
-        if event == "hit":
-            bucket["exact_cache_hits"] = bucket.get("exact_cache_hits", 0) + 1
-        elif event == "write":
-            bucket["exact_cache_writes"] = bucket.get("exact_cache_writes", 0) + 1
-        self.save()
 
     def get_or_create_gemini_cache(
         self,

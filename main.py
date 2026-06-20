@@ -19,9 +19,8 @@ from .cache_policy import (
     stable_hash,
     with_stable_style_rules,
 )
-from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.6.3"
+PLUGIN_VERSION = "0.6.4"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -87,9 +86,6 @@ class PromptCacheMaxPlugin(Star):
         self._latest_write_target = "none"
         self._latest_style_rules = "none"
         self._latest_risk_report = None
-        self._latest_response_cache = "none"
-        self._force_disable_exact_response_cache()
-        self.response_cache = ExactResponseCache(self.config)
         self._response_types: dict[str, Any] = {}
         if self._provider_wrapping_enabled():
             self._wrap_known_providers()
@@ -170,11 +166,9 @@ class PromptCacheMaxPlugin(Star):
             cached = stat.get("cached_tokens", 0)
             read = stat.get("cache_read_tokens", 0)
             created = stat.get("cache_creation_tokens", 0)
-            exact_hits = stat.get("exact_cache_hits", 0)
-            exact_writes = stat.get("exact_cache_writes", 0)
             lines.append(
                 f"- {key}: 请求数={requests}, 已缓存 token={cached}, "
-                f"读取缓存 token={read}, 写入缓存 token={created}, 精确命中={exact_hits}, 精确写入={exact_writes}"
+                f"读取缓存 token={read}, 写入缓存 token={created}"
             )
         return "\n".join(lines)
 
@@ -202,7 +196,6 @@ class PromptCacheMaxPlugin(Star):
             f"- 稳定风格规则：{self._format_note(self._latest_style_rules)}\n"
             f"- 是否包装提供商方法：{self._format_bool(self._provider_wrapping_enabled())}\n"
             f"- 是否注入缓存字段：{self._format_bool(self._cache_injection_enabled())}\n"
-            f"- 是否强制流式请求：{self._format_bool(self._openai_force_stream_enabled())}\n"
             f"- 前缀长度估算：{info.get('token_estimate')}\n"
             f"- 真实请求前缀估算：{info.get('actual_prefix_token_estimate') or 0}\n"
             f"- 首个动态内容位置估算：{self._format_dynamic_position(info)}\n"
@@ -218,7 +211,6 @@ class PromptCacheMaxPlugin(Star):
             f"- 前缀风险：{self._format_risk_reasons(info)}\n"
             f"- 写入位置：{self._format_note(self._latest_write_target)}\n"
             f"- 缓存标记点数量：{getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
-            f"- 精确回复缓存：{self._format_note(self._latest_response_cache)}\n"
             f"- 是否发送保留时间字段：{self._format_bool(self._retention_enabled(info))}\n"
             f"- 备注：{self._format_note(info.get('note'))}"
         )
@@ -281,8 +273,6 @@ class PromptCacheMaxPlugin(Star):
         return "等待模型响应统计"
 
     def _format_cache_key_mode(self) -> str:
-        if self.config.get("openai_cache_key_extra_body", False):
-            return "顶层 + extra_body 实验写入"
         return "仅顶层"
 
     def _format_risk_reasons(self, info: dict[str, Any]) -> str:
@@ -395,15 +385,6 @@ class PromptCacheMaxPlugin(Star):
 
     def _cache_injection_enabled(self) -> bool:
         return bool(self.config.get("enabled", True) and self.config.get("cache_injection_enabled", False))
-
-    def _openai_force_stream_enabled(self) -> bool:
-        return bool(self.config.get("openai_force_stream", False))
-
-    def _force_disable_exact_response_cache(self) -> None:
-        exact = self.config.setdefault("exact_response_cache", {})
-        if isinstance(exact, dict):
-            exact["enabled"] = False
-        self._latest_response_cache = "disabled:prompt_cache_only"
 
     def _apply_stable_style_rules_to_request(self, req: Any) -> None:
         current = getattr(req, "system_prompt", None)
@@ -555,7 +536,6 @@ class PromptCacheMaxPlugin(Star):
                 plugin._latest_write_target = plugin._write_payload(provider_family, args, kwargs, result.payload)
             else:
                 plugin._latest_write_target = "none"
-            plugin._latest_response_cache = "disabled:prompt_cache_only"
             _log_info(
                 "[PromptCacheMax] "
                 f"{provider_family}/{model} prefix={info.fingerprint[:12]} injected={result.injected} note={result.note}"

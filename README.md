@@ -3,8 +3,8 @@
 `astrbot_plugin_prompt_cache_max` 是一个偏保守的 AstrBot 提示词缓存辅助插件。
 它的目标是帮助 OpenAI 兼容接口、Claude、Gemini 更容易吃到服务端 prompt cache。
 
-插件不会复用模型回复，也不会主动改写用户语义。当前版本会强制关闭精确回复缓存，
-只追求服务端 prompt cache 命中，也就是后台 usage 里的 `cached_tokens` 增长。默认情况下，它处于安全模式：
+插件不会复用模型回复，也不会主动改写用户语义。
+只追求服务端 prompt cache / aiwork session cache 命中。默认情况下，它处于安全模式：
 不包装模型提供商、不注入缓存字段、不修改 system prompt。需要真正启用缓存注入时，
 请手动打开对应开关。
 
@@ -44,13 +44,12 @@
     "aiwork.fans"
   ],
   "aiwork_session_cache_enabled": true,
-  "aiwork_session_id_mode": "cache_key",
   "aiwork_session_id_field": "session_id",
   "aiwork_session_id_location": "extra_body"
 }
 ```
 
-0.6.3 起，aiwork.fans 会在开启 `cache_injection_enabled` 后把稳定的 `session_id` 写入 `extra_body`。
+0.6.4 起，aiwork.fans 会在开启 `cache_injection_enabled` 后把稳定的 `session_id` 写入 `extra_body`。
 OpenAI SDK 对 `session_id` 这类非标准字段通常需要通过 `extra_body` 才会真正透传给中转站；只写顶层字段可能在 AstrBot/OpenAI SDK 组装请求时被忽略。
 这个 `session_id` 由提供商、模型、接口域名和缓存键指纹生成，不包含用户原文、prompt 原文或聊天内容。
 同一人设/同一模型/同一 aiwork 接口会保持稳定；换模型或换缓存键会变化。
