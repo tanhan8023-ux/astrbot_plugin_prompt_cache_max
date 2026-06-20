@@ -15,12 +15,13 @@ from .cache_policy import (
     merge_config,
     normalize_provider,
     normalize_provider_with_config,
+    openai_retention_allowed,
     stable_hash,
     with_stable_style_rules,
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.5.1"
+PLUGIN_VERSION = "0.5.2"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -207,7 +208,7 @@ class PromptCacheMaxPlugin(Star):
             f"- 写入位置：{self._format_note(self._latest_write_target)}\n"
             f"- 缓存标记点数量：{getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
             f"- 精确回复缓存：{self._format_note(self._latest_response_cache)}\n"
-            f"- 是否发送保留时间字段：{self._format_bool(self._retention_enabled())}\n"
+            f"- 是否发送保留时间字段：{self._format_bool(self._retention_enabled(info))}\n"
             f"- 备注：{self._format_note(info.get('note'))}"
         )
 
@@ -320,9 +321,16 @@ class PromptCacheMaxPlugin(Star):
         except Exception:
             return 512
 
-    def _retention_enabled(self) -> bool:
+    def _retention_enabled(self, info: Optional[dict[str, Any]] = None) -> bool:
         retention = self.config.get("openai_prompt_cache_retention", {})
-        return bool(isinstance(retention, dict) and retention.get("enabled"))
+        if not isinstance(retention, dict) or not retention.get("enabled"):
+            return False
+        if info:
+            class InspectInfo:
+                base_url_host = str(info.get("base_url_host") or "")
+
+            return openai_retention_allowed(InspectInfo(), self.config)
+        return True
 
     def _provider_wrapping_enabled(self) -> bool:
         return bool(self.config.get("enabled", True) and self.config.get("provider_wrapping_enabled", False))

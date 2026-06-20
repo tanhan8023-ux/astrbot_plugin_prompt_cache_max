@@ -48,6 +48,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": False,
         "value": "24h",
     },
+    "openai_prompt_cache_retention_blocked_hosts": [
+        "aiwork.fans",
+    ],
     "min_prefix_tokens": {
         "openai": 512,
         "gemini_flash": 1024,
@@ -353,6 +356,16 @@ def base_url_is_allowlisted(base_url: str, allowlist: list[str]) -> bool:
 def base_url_host(base_url: str) -> str:
     parsed = urlparse(str(base_url or ""))
     return parsed.netloc.lower()
+
+
+def openai_retention_allowed(info: PrefixInfo, config: dict[str, Any]) -> bool:
+    retention = config.get("openai_prompt_cache_retention", {})
+    if not isinstance(retention, dict) or not retention.get("enabled"):
+        return False
+    blocked_hosts = {str(item).lower() for item in config.get("openai_prompt_cache_retention_blocked_hosts", [])}
+    if info.base_url_host in blocked_hosts:
+        return False
+    return True
 
 
 def parse_ttl_seconds(value: Any, default: int) -> int:
@@ -740,7 +753,7 @@ def inject_payload(
             return InjectionResult(mutated, False, info.provider, info.fingerprint, info.token_estimate, "prefix below threshold")
         mutated.setdefault("prompt_cache_key", info.cache_key_fingerprint[:64])
         retention = config.get("openai_prompt_cache_retention", {})
-        if isinstance(retention, dict) and retention.get("enabled"):
+        if openai_retention_allowed(info, config):
             mutated.setdefault("prompt_cache_retention", retention.get("value", "24h"))
         return InjectionResult(
             mutated,

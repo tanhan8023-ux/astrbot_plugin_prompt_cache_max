@@ -3,7 +3,7 @@
 `astrbot_plugin_prompt_cache_max` 是一个偏保守的 AstrBot 提示词缓存辅助插件。
 它的目标是帮助 OpenAI 兼容接口、Claude、Gemini 更容易吃到服务端 prompt cache。
 
-插件不会复用模型回复，也不会主动改写用户语义。v0.5.1 起会强制关闭精确回复缓存，
+插件不会复用模型回复，也不会主动改写用户语义。当前版本会强制关闭精确回复缓存，
 只追求服务端 prompt cache 命中，也就是后台 usage 里的 `cached_tokens` 增长。默认情况下，它处于安全模式：
 不包装模型提供商、不注入缓存字段、不修改 system prompt。需要真正启用缓存注入时，
 请手动打开对应开关。
@@ -30,7 +30,7 @@
 ## aiwork.fans
 
 `https://aiwork.fans/v1` 已作为 OpenAI 兼容接口加入默认白名单，但缓存注入仍然需要手动开启。
-灰度测试时建议开启：
+灰度测试时建议开启。aiwork 默认只发送 `prompt_cache_key`，不发送 `prompt_cache_retention`：
 
 ```json
 {
@@ -39,7 +39,10 @@
   "cache_injection_enabled": true,
   "openai_prompt_cache_retention": {
     "enabled": false
-  }
+  },
+  "openai_prompt_cache_retention_blocked_hosts": [
+    "aiwork.fans"
+  ]
 }
 ```
 

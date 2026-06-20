@@ -98,6 +98,13 @@
       "value": "24h"
     }
   },
+  "openai_prompt_cache_retention_blocked_hosts": {
+    "description": "禁止发送 prompt_cache_retention 的接口域名。aiwork.fans 默认禁发，只发送 prompt_cache_key。",
+    "type": "list",
+    "default": [
+      "aiwork.fans"
+    ]
+  },
   "min_prefix_tokens": {
     "description": "稳定前缀达到多少估算 token 后，才尝试发送缓存提示。",
     "type": "object",
@@ -199,7 +206,7 @@
     }
   },
   "exact_response_cache": {
-    "description": "精确回复缓存。v0.5.1 起为保持自然回复会被插件强制关闭；真正省钱请看服务端 cached_tokens。",
+    "description": "精确回复缓存。当前版本为保持自然回复会被插件强制关闭；真正省钱请看服务端 cached_tokens。",
     "type": "object",
     "items": {
       "enabled": {

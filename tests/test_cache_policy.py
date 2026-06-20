@@ -10,6 +10,7 @@ from astrbot_plugin_prompt_cache_max.cache_policy import (
     inject_payload,
     merge_config,
     normalize_provider_with_config,
+    openai_retention_allowed,
     with_stable_style_rules,
 )
 
@@ -75,6 +76,31 @@ def test_aiwork_openai_payload_only_sends_cache_key(tmp_path: Path):
     assert result.injected is True
     assert result.payload["prompt_cache_key"] == "b" * 64
     assert "prompt_cache_retention" not in result.payload
+
+
+def test_aiwork_never_sends_retention_even_when_enabled(tmp_path: Path):
+    config = merge_config(
+        {
+            "cache_injection_enabled": True,
+            "openai_prompt_cache_retention": {"enabled": True, "value": "24h"},
+        }
+    )
+    state = make_state(tmp_path)
+    info = PrefixInfo(
+        provider="openai",
+        model="gemini-3-flash-preview",
+        base_url="https://aiwork.fans/v1",
+        base_url_host="aiwork.fans",
+        fingerprint="a" * 64,
+        cache_key_fingerprint="b" * 64,
+        token_estimate=5000,
+        allowlisted=True,
+    )
+    result = inject_payload({}, info, config, state)
+    assert result.injected is True
+    assert result.payload["prompt_cache_key"] == "b" * 64
+    assert "prompt_cache_retention" not in result.payload
+    assert openai_retention_allowed(info, config) is False
 
 
 def test_openai_near_threshold_still_injects(tmp_path: Path):
