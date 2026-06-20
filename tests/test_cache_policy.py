@@ -4,6 +4,7 @@ from astrbot_plugin_prompt_cache_max.cache_policy import (
     LightState,
     PrefixInfo,
     STABLE_STYLE_START,
+    analyze_prefix_risks_from_payload,
     apply_stable_style_rules_to_payload,
     base_url_is_allowlisted,
     inject_payload,
@@ -123,11 +124,51 @@ def test_gemini_reuses_cache_until_expired(tmp_path: Path):
 
 def test_state_does_not_store_prompt_text(tmp_path: Path):
     state = make_state(tmp_path)
-    state.get_or_create_gemini_cache("b" * 64, "gemini", "gemini-pro", 5000, 3600)
+    state.get_or_create_gemini_cache("b" * 64, "gemini", "gemini-pro", 5000, 3600, lambda *_args: "cached/1")
     text = (tmp_path / "state.json").read_text(encoding="utf-8")
     assert "system prompt" not in text
     assert "user message" not in text
     assert "gemini-pro" in text
+
+
+def test_prefix_history_tracks_same_fingerprint_without_prompt_text(tmp_path: Path):
+    state = make_state(tmp_path)
+    info = make_info("openai", True)
+    first_risk = analyze_prefix_risks_from_payload({"messages": [{"role": "system", "content": "固定人设"}]})
+    state.remember_inspect(info, True, "prompt_cache_key", first_risk)
+    assert state.last_inspect["prefix_same_as_previous"] is None
+
+    state.remember_inspect(info, True, "prompt_cache_key", first_risk)
+    assert state.last_inspect["prefix_same_as_previous"] is True
+
+    text = (tmp_path / "state.json").read_text(encoding="utf-8")
+    assert "固定人设" not in text
+
+
+def test_prefix_risk_detects_dynamic_content_near_front():
+    report = analyze_prefix_risks_from_payload(
+        {
+            "messages": [
+                {"role": "system", "content": "Current datetime: 2026-05-29 00:06\n状态栏: 在线"},
+                {"role": "user", "content": "你好"},
+            ]
+        }
+    )
+    assert report.dynamic_prefix is True
+    assert "dynamic_content_near_front" in report.reasons
+
+
+def test_prefix_risk_detects_media_near_front():
+    report = analyze_prefix_risks_from_payload(
+        {
+            "messages": [
+                {"role": "system", "content": "固定人设"},
+                {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/gif;base64,xxx"}}]},
+            ]
+        }
+    )
+    assert report.media_prefix is True
+    assert "media_near_front" in report.reasons
 
 
 def test_stable_style_rules_prepend_once():

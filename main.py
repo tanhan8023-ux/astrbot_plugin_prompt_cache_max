@@ -7,6 +7,8 @@ from typing import Any, Optional
 from .cache_policy import (
     BUILTIN_ALLOWLIST_BASE_URLS,
     LightState,
+    analyze_prefix_risks_from_payload,
+    analyze_prefix_risks_from_request,
     apply_stable_style_rules_to_payload,
     build_prefix_info,
     inject_payload,
@@ -18,7 +20,7 @@ from .cache_policy import (
 )
 from .response_cache import ExactResponseCache
 
-PLUGIN_VERSION = "0.5.0"
+PLUGIN_VERSION = "0.5.1"
 
 try:
     from astrbot.api.event import AstrMessageEvent, filter
@@ -83,8 +85,10 @@ class PromptCacheMaxPlugin(Star):
         self._latest_result = None
         self._latest_write_target = "none"
         self._latest_style_rules = "none"
-        self.response_cache = ExactResponseCache(self.config)
+        self._latest_risk_report = None
         self._latest_response_cache = "none"
+        self._force_disable_exact_response_cache()
+        self.response_cache = ExactResponseCache(self.config)
         self._response_types: dict[str, Any] = {}
         if self._provider_wrapping_enabled():
             self._wrap_known_providers()
@@ -116,9 +120,12 @@ class PromptCacheMaxPlugin(Star):
         previous_system_hash = self._last_system_hash_by_key.get(key)
         system_hash = stable_hash(getattr(req, "system_prompt", None))
         info = build_prefix_info(req, provider_family, model, base_url, self.config, previous_system_hash)
+        risk_report = analyze_prefix_risks_from_request(req)
+        self._latest_risk_report = risk_report
         self._last_system_hash_by_key[key] = system_hash
         self._latest_info = info
-        self.state.remember_inspect(info, False, "request observed")
+        if not self._provider_wrapping_enabled():
+            self.state.remember_inspect(info, False, "request observed", risk_report)
         if info.dynamic_system_prompt:
             _log_warn(
                 "[PromptCacheMax] system_prompt changed for "
@@ -180,17 +187,23 @@ class PromptCacheMaxPlugin(Star):
             f"- 提供商/模型：{info.get('provider')}/{info.get('model')}\n"
             f"- 接口地址：{info.get('base_url')}\n"
             f"- 接口域名：{info.get('base_url_host')}\n"
+            f"- 命中判断：{self._format_cache_verdict(info)}\n"
             f"- 前缀指纹：{info.get('fingerprint')}\n"
+            f"- 上次前缀指纹：{info.get('previous_fingerprint') or '无'}\n"
+            f"- 本次前缀和上次是否一致：{self._format_prefix_same(info.get('prefix_same_as_previous'))}\n"
             f"- 缓存键：{info.get('cache_key')}\n"
             f"- 稳定风格规则：{self._format_note(self._latest_style_rules)}\n"
             f"- 是否包装提供商方法：{self._format_bool(self._provider_wrapping_enabled())}\n"
             f"- 是否注入缓存字段：{self._format_bool(self._cache_injection_enabled())}\n"
             f"- 前缀长度估算：{info.get('token_estimate')}\n"
+            f"- 稳定前缀是否够长：{self._format_bool(self._prefix_meets_threshold(info))}\n"
             f"- OpenAI兼容门槛：{self._openai_threshold()}\n"
             f"- Claude门槛：{self._anthropic_threshold()}\n"
             f"- 接口是否在白名单：{self._format_bool(info.get('allowlisted'))}\n"
             f"- 白名单是否包含55系接口：{self._format_bool(self._allowlist_has_55ai())}\n"
             f"- 本次是否已注入：{self._format_bool(info.get('injected'))}\n"
+            f"- 本轮已缓存 token：{self._format_cached_tokens(info)}\n"
+            f"- 前缀风险：{self._format_risk_reasons(info)}\n"
             f"- 写入位置：{self._format_note(self._latest_write_target)}\n"
             f"- 缓存标记点数量：{getattr(self._latest_result, 'cache_breakpoints', 0) if self._latest_result else 0}\n"
             f"- 精确回复缓存：{self._format_note(self._latest_response_cache)}\n"
@@ -222,9 +235,74 @@ class PromptCacheMaxPlugin(Star):
             "cachedContent": "已引用 Gemini 显式缓存",
             "cache unavailable": "缓存不可用",
             "unsupported provider": "暂不支持该提供商",
+            "disabled:prompt_cache_only": "已强制关闭，只使用服务端提示词缓存",
         }
         text = str(value or "")
         return mapping.get(text, text)
+
+    def _format_prefix_same(self, value: Any) -> str:
+        if value is None:
+            return "首次记录，下一轮再判断"
+        return "一致" if bool(value) else "不一致"
+
+    def _format_cached_tokens(self, info: dict[str, Any]) -> str:
+        value = info.get("observed_cached_tokens")
+        if value is None:
+            return "还没读到 usage"
+        return str(value)
+
+    def _format_risk_reasons(self, info: dict[str, Any]) -> str:
+        reasons = list(info.get("risk_reasons") or [])
+        if info.get("front_not_static") and "front_not_static" not in reasons:
+            reasons.append("front_not_static")
+        if not reasons:
+            return "未发现明显前缀风险"
+        mapping = {
+            "front_not_static": "请求开头不是固定 system/developer 内容",
+            "dynamic_content_near_front": "时间/状态栏/检索摘要/动态记忆疑似太靠前",
+            "media_near_front": "图片或 GIF 疑似太靠前",
+        }
+        return "；".join(mapping.get(reason, str(reason)) for reason in reasons)
+
+    def _format_cache_verdict(self, info: dict[str, Any]) -> str:
+        if not info.get("allowlisted"):
+            return "不会命中：接口地址不在白名单"
+        if not self._provider_wrapping_enabled():
+            return "不会命中：provider_wrapping_enabled 未开启"
+        if not self._cache_injection_enabled():
+            return "不会命中：cache_injection_enabled 未开启"
+        if not self._prefix_meets_threshold(info):
+            return "难命中：稳定前缀还不够长"
+        if info.get("front_not_static") or info.get("dynamic_prefix") or info.get("media_prefix"):
+            return "难命中：动态内容或图片/GIF 靠前，前缀容易变化"
+        if info.get("injected") is not True:
+            return f"未注入：{self._format_note(info.get('note'))}"
+        if info.get("observed_cached_tokens") and int(info.get("observed_cached_tokens") or 0) > 0:
+            return "已命中：后台返回了 cached_tokens"
+        if info.get("prefix_same_as_previous") is False:
+            return "未稳定：本次前缀和上次不一致"
+        if info.get("prefix_same_as_previous") is True and info.get("usage_observed") and int(info.get("observed_cached_tokens") or 0) == 0:
+            return "可能未透传：前缀一致但 cached_tokens 为 0，上游可能不支持或没返回统计"
+        if info.get("prefix_same_as_previous") is True:
+            return "条件满足：前缀一致，等待后台返回 cached_tokens"
+        return "首轮记录：下一轮相同前缀才好判断命中"
+
+    def _prefix_meets_threshold(self, info: dict[str, Any]) -> bool:
+        provider = str(info.get("provider") or "")
+        tokens = int(info.get("token_estimate") or 0)
+        if provider == "anthropic":
+            return tokens >= self._anthropic_threshold()
+        if provider == "openai":
+            return tokens >= max(0, self._openai_threshold() - self._threshold_slack("openai"))
+        if provider == "gemini":
+            return True
+        return False
+
+    def _threshold_slack(self, provider: str) -> int:
+        try:
+            return int(self.config.get("threshold_slack_tokens", {}).get(provider, 0) or 0)
+        except Exception:
+            return 0
 
     def _allowlist_has_55ai(self) -> bool:
         values = [*BUILTIN_ALLOWLIST_BASE_URLS, *list(self.config.get("allowlist_base_urls", []))]
@@ -251,6 +329,12 @@ class PromptCacheMaxPlugin(Star):
 
     def _cache_injection_enabled(self) -> bool:
         return bool(self.config.get("enabled", True) and self.config.get("cache_injection_enabled", False))
+
+    def _force_disable_exact_response_cache(self) -> None:
+        exact = self.config.setdefault("exact_response_cache", {})
+        if isinstance(exact, dict):
+            exact["enabled"] = False
+        self._latest_response_cache = "disabled:prompt_cache_only"
 
     def _apply_stable_style_rules_to_request(self, req: Any) -> None:
         current = getattr(req, "system_prompt", None)
@@ -381,24 +465,19 @@ class PromptCacheMaxPlugin(Star):
             info = plugin._latest_info
             if info is None or info.provider != provider_family or (model and info.model and info.model != model):
                 info = plugin._build_info_from_payload(provider_family, model, base_url, payload)
+            risk_report = analyze_prefix_risks_from_payload(payload)
+            plugin._latest_risk_report = risk_report
             if plugin._cache_injection_enabled():
                 result = inject_payload(payload, info, plugin.config, plugin.state, plugin._create_gemini_cache)
             else:
                 result = plugin._observe_only_result(payload, info)
             plugin._latest_result = result
-            plugin.state.remember_inspect(info, result.injected, result.note)
+            plugin.state.remember_inspect(info, result.injected, result.note, risk_report)
             if result.injected:
                 plugin._latest_write_target = plugin._write_payload(provider_family, args, kwargs, result.payload)
             else:
                 plugin._latest_write_target = "none"
-            cache_key = plugin.response_cache.make_key(provider_family, model or info.model, base_url, result.payload)
-            lookup = await plugin.response_cache.get(cache_key)
-            if lookup.hit:
-                plugin._latest_response_cache = f"hit:{lookup.backend}"
-                plugin.state.record_exact_cache(provider_family, model or info.model, "hit")
-                _log_info(f"[PromptCacheMax] exact response cache hit {provider_family}/{model}")
-                return plugin.response_cache.restore(lookup.value, plugin._response_types.get(method_name))
-            plugin._latest_response_cache = f"miss:{lookup.reason or lookup.backend}"
+            plugin._latest_response_cache = "disabled:prompt_cache_only"
             _log_info(
                 "[PromptCacheMax] "
                 f"{provider_family}/{model} prefix={info.fingerprint[:12]} injected={result.injected} note={result.note}"
@@ -406,9 +485,6 @@ class PromptCacheMaxPlugin(Star):
             response = await original(*args, **kwargs)
             if response is not None:
                 plugin._response_types[method_name] = response.__class__
-            if await plugin.response_cache.set(cache_key, response):
-                plugin._latest_response_cache = "write:" + plugin.response_cache.backend
-                plugin.state.record_exact_cache(provider_family, model or info.model, "write")
             usage = plugin._extract_usage_from_response(response)
             if plugin.config.get("stats_enabled", True):
                 plugin.state.record_usage(provider_family, model or info.model, usage)

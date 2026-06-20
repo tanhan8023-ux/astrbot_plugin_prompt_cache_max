@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -135,6 +136,14 @@ class PrefixInfo:
     token_estimate: int
     allowlisted: bool
     dynamic_system_prompt: bool = False
+
+
+@dataclass
+class PrefixRiskReport:
+    dynamic_prefix: bool = False
+    media_prefix: bool = False
+    front_not_static: bool = False
+    reasons: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -425,6 +434,7 @@ class LightState:
         self.entries: dict[str, CacheEntry] = {}
         self.stats: dict[str, dict[str, int]] = {}
         self.last_inspect: dict[str, Any] = {}
+        self.prefix_history: dict[str, str] = {}
         self.load()
 
     def load(self) -> None:
@@ -436,6 +446,7 @@ class LightState:
             return
         self.stats = data.get("stats", {})
         self.last_inspect = data.get("last_inspect", {})
+        self.prefix_history = data.get("prefix_history", {})
         for fingerprint, raw in data.get("entries", {}).items():
             self.entries[fingerprint] = CacheEntry(
                 provider=str(raw.get("provider", "")),
@@ -462,6 +473,7 @@ class LightState:
             },
             "stats": self.stats,
             "last_inspect": self.last_inspect,
+            "prefix_history": self.prefix_history,
         }
         self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -469,9 +481,20 @@ class LightState:
         self.entries = {}
         self.stats = {}
         self.last_inspect = {}
+        self.prefix_history = {}
         self.save()
 
-    def remember_inspect(self, info: PrefixInfo, injected: bool, note: str = "") -> None:
+    def remember_inspect(
+        self,
+        info: PrefixInfo,
+        injected: bool,
+        note: str = "",
+        risk_report: Optional[PrefixRiskReport] = None,
+    ) -> None:
+        history_key = f"{info.provider}:{info.model}:{info.base_url_host}"
+        previous_fingerprint = self.prefix_history.get(history_key)
+        same_as_previous = previous_fingerprint == info.fingerprint if previous_fingerprint else None
+        self.prefix_history[history_key] = info.fingerprint
         self.last_inspect = {
             "provider": info.provider,
             "model": info.model,
@@ -484,10 +507,18 @@ class LightState:
             "dynamic_system_prompt": info.dynamic_system_prompt,
             "injected": injected,
             "note": note,
+            "previous_fingerprint": previous_fingerprint[:12] if previous_fingerprint else "",
+            "prefix_same_as_previous": same_as_previous,
+            "dynamic_prefix": bool(risk_report and risk_report.dynamic_prefix),
+            "media_prefix": bool(risk_report and risk_report.media_prefix),
+            "front_not_static": bool(risk_report and risk_report.front_not_static),
+            "risk_reasons": list(risk_report.reasons if risk_report else []),
+            "usage_observed": False,
+            "observed_cached_tokens": None,
         }
         self.save()
 
-    def record_usage(self, provider: str, model: str, usage: Any) -> None:
+    def record_usage(self, provider: str, model: str, usage: Any) -> dict[str, int]:
         key = f"{provider}:{model}"
         bucket = self.stats.setdefault(
             key,
@@ -504,7 +535,14 @@ class LightState:
         extracted = extract_usage(provider, usage)
         for field_name, value in extracted.items():
             bucket[field_name] = bucket.get(field_name, 0) + int(value or 0)
+        if self.last_inspect.get("provider") == provider and self.last_inspect.get("model") == model:
+            observed_cached = int(extracted.get("cached_tokens", 0) or 0) + int(
+                extracted.get("cache_read_tokens", 0) or 0
+            )
+            self.last_inspect["usage_observed"] = bool(extracted)
+            self.last_inspect["observed_cached_tokens"] = observed_cached
         self.save()
+        return extracted
 
     def record_exact_cache(self, provider: str, model: str, event: str) -> None:
         key = f"{provider}:{model}"
@@ -574,6 +612,101 @@ def build_prefix_info(
         allowlisted=base_url_is_allowlisted(base_url, list(config.get("allowlist_base_urls", []))),
         dynamic_system_prompt=bool(previous_system_hash and previous_system_hash != system_hash),
     )
+
+
+DYNAMIC_PREFIX_PATTERNS = [
+    ("time", re.compile(r"(current datetime|current time|当前时间|当前日期|现在时间|北京时间|\d{4}[-/]\d{1,2}[-/]\d{1,2})", re.I)),
+    ("status", re.compile(r"(状态栏|当前状态|离线时长|在线状态|心情值|体力值)", re.I)),
+    ("retrieval", re.compile(r"(检索摘要|搜索结果|知识库结果|retrieval|search result)", re.I)),
+    ("music", re.compile(r"(音乐感知|正在听|now playing|spotify|网易云)", re.I)),
+    ("memory", re.compile(r"(动态记忆|短期记忆|recent memory|临时记忆)", re.I)),
+]
+
+
+def analyze_prefix_risks_from_request(req: Any) -> PrefixRiskReport:
+    sections: list[tuple[str, Any]] = [("system", getattr(req, "system_prompt", None))]
+    contexts = getattr(req, "contexts", None)
+    sections.extend(_front_context_sections(contexts))
+    return analyze_prefix_risks(sections)
+
+
+def analyze_prefix_risks_from_payload(payload: dict[str, Any]) -> PrefixRiskReport:
+    sections: list[tuple[str, Any]] = []
+    for key in ("system", "system_instruction"):
+        if key in payload:
+            sections.append((key, payload.get(key)))
+    sections.extend(_front_context_sections(payload.get("messages") or payload.get("contents")))
+    return analyze_prefix_risks(sections)
+
+
+def analyze_prefix_risks(sections: list[tuple[str, Any]]) -> PrefixRiskReport:
+    report = PrefixRiskReport()
+    meaningful_sections = [(name, value) for name, value in sections if value not in (None, "", [], {})]
+    if meaningful_sections:
+        first_name, first_value = meaningful_sections[0]
+        first_role = _section_role(first_value)
+        if first_name.startswith("message") and first_role not in ("system", "developer"):
+            report.front_not_static = True
+            report.reasons.append("front_not_static")
+
+    for _name, value in meaningful_sections[:4]:
+        text = _flatten_text(value)
+        if any(pattern.search(text) for _code, pattern in DYNAMIC_PREFIX_PATTERNS):
+            report.dynamic_prefix = True
+        if _contains_media(value):
+            report.media_prefix = True
+
+    if report.dynamic_prefix:
+        report.reasons.append("dynamic_content_near_front")
+    if report.media_prefix:
+        report.reasons.append("media_near_front")
+    return report
+
+
+def _front_context_sections(contexts: Any) -> list[tuple[str, Any]]:
+    if not isinstance(contexts, (list, tuple)):
+        return []
+    return [(f"message_{idx}", item) for idx, item in enumerate(contexts[:4])]
+
+
+def _section_role(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("role") or "")
+    return str(getattr(value, "role", "") or "")
+
+
+def _flatten_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.lower()
+    if isinstance(value, dict):
+        parts = []
+        for key, item in value.items():
+            if key in ("text", "content", "role", "type"):
+                parts.append(_flatten_text(item))
+            elif isinstance(item, (dict, list, tuple)):
+                parts.append(_flatten_text(item))
+        return " ".join(parts).lower()
+    if isinstance(value, (list, tuple)):
+        return " ".join(_flatten_text(item) for item in value).lower()
+    return str(value).lower()
+
+
+def _contains_media(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        lowered = value.lower()
+        return "data:image/" in lowered or "image_url" in lowered or "image/gif" in lowered
+    if isinstance(value, dict):
+        lowered_values = " ".join(str(v).lower() for v in value.values() if isinstance(v, str))
+        if any(marker in lowered_values for marker in ("image_url", "input_image", "image/", "image/gif")):
+            return True
+        return any(_contains_media(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_media(item) for item in value)
+    return False
 
 
 def normalize_provider_with_config(provider: Any, model: str, base_url: str, config: dict[str, Any]) -> str:
